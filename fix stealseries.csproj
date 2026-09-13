@@ -7,8 +7,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{03391266-44B7-4867-B6F0-EE64770F167A}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>fix_stealseries</RootNamespace>
-    <AssemblyName>DiscordMicMuter</AssemblyName>
+    <RootNamespace>SteelSeriesDiscordStreamFix</RootNamespace>
+    <AssemblyName>SteelSeriesDiscordStreamFix</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
