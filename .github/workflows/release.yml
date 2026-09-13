@@ -37,10 +37,10 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: nuget restore SteelSeriesDiscordStreamFix.sln
+        run: nuget restore "fix.stealseries.csproj"
 
       - name: Build
-        run: msbuild SteelSeriesDiscordStreamFix.sln /p:Configuration=Release
+        run: msbuild "fix.stealseries.csproj" /p:Configuration=Release
 
       - name: Find built exe
         id: findexe
