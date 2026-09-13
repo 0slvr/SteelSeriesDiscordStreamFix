@@ -3,6 +3,9 @@ name: Build and Attach Release
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -18,6 +21,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.event.release.tag_name }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = "${{ github.ref_name }}"
+          }
           $version = $tag -replace '^v', ''
           # يضمن الصيغة X.X.X.X
           $parts = $version.Split('.')
@@ -37,12 +43,12 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-     - name: Restore NuGet packages
+      - name: Restore NuGet packages
         run: nuget restore "fix stealseries.csproj" -SolutionDirectory .
-        
+
       - name: Build
         run: msbuild "fix stealseries.csproj" /p:Configuration=Release
-        
+
       - name: Find built exe
         id: findexe
         shell: pwsh
