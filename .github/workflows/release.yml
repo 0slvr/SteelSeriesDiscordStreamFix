@@ -44,7 +44,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: nuget restore "fix stealseries.csproj" -SolutionDirectory .
+        run: nuget restore "fix stealseries.csproj" -PackagesDirectory "..\packages"
 
       - name: Build
         run: msbuild "fix stealseries.csproj" /p:Configuration=Release
