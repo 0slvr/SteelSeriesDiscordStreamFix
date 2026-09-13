@@ -39,9 +39,12 @@ jobs:
         run: |
           $path = "Properties/AssemblyInfo.cs"
           $content = Get-Content $path -Raw
-          $content = $content -replace 'AssemblyVersion\("[\d\.]+"\)', 'AssemblyVersion("${{ steps.version.outputs.version }}")'
-          $content = $content -replace 'AssemblyFileVersion\("[\d\.]+"\)', 'AssemblyFileVersion("${{ steps.version.outputs.version }}")'
+          $ver = "${{ steps.version.outputs.version }}"
+          $content = $content -replace 'AssemblyFileVersion\("[\d\.]+"\)', "AssemblyFileVersion(`"$ver`")"
+          $content = $content -replace '(?<!File)AssemblyVersion\("[\d\.]+"\)', "AssemblyVersion(`"$ver`")"
           Set-Content $path $content
+          Write-Host "----- AssemblyInfo.cs after patch -----"
+          Get-Content $path | Select-String "AssemblyVersion|AssemblyFileVersion"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
