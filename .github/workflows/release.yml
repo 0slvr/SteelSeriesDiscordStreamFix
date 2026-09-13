@@ -47,7 +47,7 @@ jobs:
         run: nuget restore "fix stealseries.csproj" -PackagesDirectory "..\packages"
 
       - name: Build
-        run: msbuild "fix stealseries.csproj" /p:Configuration=Release
+        run: msbuild "fix stealseries.csproj" /p:Configuration=Release /p:GenerateManifests=false /p:SignManifests=false
 
       - name: Find built exe
         id: findexe
