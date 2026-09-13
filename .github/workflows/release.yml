@@ -1,0 +1,55 @@
+name: Build and Attach Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag -replace '^v', ''
+          # يضمن الصيغة X.X.X.X
+          $parts = $version.Split('.')
+          while ($parts.Length -lt 4) { $parts += "0" }
+          $fullVersion = ($parts[0..3] -join '.')
+          echo "version=$fullVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Patch AssemblyInfo.cs
+        shell: pwsh
+        run: |
+          $path = "Properties/AssemblyInfo.cs"
+          $content = Get-Content $path -Raw
+          $content = $content -replace 'AssemblyVersion\("[\d\.]+"\)', 'AssemblyVersion("${{ steps.version.outputs.version }}")'
+          $content = $content -replace 'AssemblyFileVersion\("[\d\.]+"\)', 'AssemblyFileVersion("${{ steps.version.outputs.version }}")'
+          Set-Content $path $content
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore SteelSeriesDiscordStreamFix.sln
+
+      - name: Build
+        run: msbuild SteelSeriesDiscordStreamFix.sln /p:Configuration=Release
+
+      - name: Find built exe
+        id: findexe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path . -Recurse -Filter "*.exe" | Where-Object { $_.FullName -match "bin\\Release" } | Select-Object -First 1
+          echo "path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload exe to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.findexe.outputs.path }}
