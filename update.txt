@@ -1,4 +1,0 @@
-1.0.1
-https://github.com/0slvr/SteelSeriesDiscordStreamFix/releases/download/V1.0.1/SteelSeriesDiscordStreamFix.exe
-<هاش SHA256 حق الملف هنا>
-ملاحظات الإصدار هنا
