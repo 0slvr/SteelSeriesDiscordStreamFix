@@ -127,8 +127,8 @@ namespace SteelSeriesDiscordStreamFix
                 Location = new Point(32, 70),
                 Size = new Size(416, 60),
                 Text = "Running in the background: Discord is auto-muted the instant it opens a " +
-                       $"session on \"{MuteWatcherService.MicEndpointNameFragment}\", and re-muted instantly " +
-                       "if anything unmutes it. There's no tray icon — reopen this window any time by " +
+                       $"session on \"{MuteWatcherService.MicEndpointNameFragment}\", and re-muted if it is un-muted in the first seconds " +
+                       "(a manual un-mute later is respected). There's no tray icon — reopen this window any time by " +
                        "running the app again.",
                 ForeColor = ColorTextSecondary,
                 Font = new Font("Segoe UI", 9.5F),

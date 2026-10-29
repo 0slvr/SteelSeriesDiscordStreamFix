@@ -24,6 +24,14 @@ namespace SteelSeriesDiscordStreamFix
         private static readonly HashSet<string> DiscordProcessNames =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Discord" };
 
+        // After a Discord session is first muted we defend that mute (Windows/Discord may restore the old
+        // volume state right after the session opens). Once this window has passed, or after this many
+        // re-mutes, an un-mute is treated as a deliberate user action and is left alone. Without this limit
+        // the app fights the user forever and Discord can never be un-muted (the mute state is shared with
+        // Discord's real audio on many systems, so "re-mute instantly" silences ALL of Discord).
+        private static readonly TimeSpan RemuteWindow = TimeSpan.FromSeconds(15);
+        private const int MaxRemutes = 3;
+
         private const int TickIntervalMs = 30 * 1000;
         private static readonly TimeSpan BoundCheckInterval = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan NotFoundNotifyDelay = TimeSpan.FromMinutes(2);
@@ -485,6 +493,9 @@ namespace SteelSeriesDiscordStreamFix
             private readonly int _pid;
             private readonly MuteWatcherService _owner;
             private readonly AudioSessionControl _session;
+            private readonly DateTime _trackedAtUtc = DateTime.UtcNow;
+            private int _remuteCount;
+            private int _respectLogged;
 
             public DiscordSessionEventsHandler(int pid, MuteWatcherService owner, AudioSessionControl session)
             {
@@ -496,13 +507,24 @@ namespace SteelSeriesDiscordStreamFix
             public void OnVolumeChanged(float volume, bool isMuted)
             {
                 if (_owner._disposed || isMuted) return;
+
+                bool inWindow = DateTime.UtcNow - _trackedAtUtc <= RemuteWindow;
+                if (!inWindow || _remuteCount >= MaxRemutes)
+                {
+                    // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it.
+                    if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
+                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted after the protection window — leaving it un-muted.");
+                    return;
+                }
+
+                _remuteCount++;
                 // WASAPI forbids calling back into the audio engine from inside a notification
                 // callback (can stall/deadlock the audio engine and freeze Windows volume UI),
                 // so hand the re-mute to the thread pool.
                 Task.Run(() =>
                 {
                     if (!_owner._disposed)
-                        _owner.MuteSession(_session, "session was un-muted externally — re-muting");
+                        _owner.MuteSession(_session, "session was un-muted right after it opened — re-muting");
                 });
             }
 
