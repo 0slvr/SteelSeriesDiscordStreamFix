@@ -1,0 +1,56 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: v1.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+  - type: input
+    id: sonar
+    attributes:
+      label: SteelSeries GG / Sonar version
+    validations:
+      required: true
+  - type: dropdown
+    id: discord
+    attributes:
+      label: Discord client
+      options:
+        - Stable
+        - PTB
+        - Canary
+        - Development
+        - Vesktop
+        - Browser (unsupported)
+    validations:
+      required: true
+  - type: checkboxes
+    id: hide
+    attributes:
+      label: Is "Hide Sonar - Chat / Gaming" enabled?
+      options:
+        - label: Yes, it is enabled
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: Open the log from the settings window and paste the relevant part here.
+      render: text
