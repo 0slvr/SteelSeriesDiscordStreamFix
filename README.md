@@ -1,5 +1,9 @@
 # SteelSeries Discord Stream Fix
 
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/<USERNAME>/steelseries-discord-stream-fix)](../../releases)
+
 A small Windows background utility that stops Discord audio from leaking into the **SteelSeries Sonar** virtual microphone, which is especially useful when streaming or recording.
 
 Install it once, and it runs silently at Windows startup with no tray icon. To open the settings window, simply launch the app again.
