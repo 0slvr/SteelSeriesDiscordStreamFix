@@ -19,6 +19,14 @@ Discord running in a web browser is not supported, since it cannot be distinguis
 You can hide these two devices from the Windows device list to reduce clutter.
 This is optional because SteelSeries recommends keeping Discord's output on the Chat device, and hiding it may cut Discord audio for some users. If Discord goes silent after enabling this, turn the option off.
 
+What It Solves
+| Problem | How it's handled |
+|---|---|
+| Discord audio leaking into the virtual mic | Automatically mutes Discord's session on that device |
+| Repeating manual setup | No need to open the volume mixer and mute Discord every time |
+| Cluttered audio device list | Optional hide feature |
+| Protection lost after restarting Sonar or Windows | Reconnects automatically |
+| Worry about leaving the system in an odd state | On exit or Windows shutdown, the app unmutes and restores only the devices it hid |
 Limitations
  
 Windows only, and Sonar must be installed
