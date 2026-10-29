@@ -33,6 +33,27 @@ This is optional because SteelSeries recommends keeping Discord's output on the 
 | Protection lost after restarting Sonar or Windows | Reconnects automatically |
 | Worry about leaving the system in an odd state | On exit or Windows shutdown, the app unmutes and restores only the devices **it** hid |
 
+## Installation
+
+1. Make sure **SteelSeries GG** is installed and running.
+2. Download the latest installer from the [Releases](../../releases) page.
+3. Run it once. The app starts automatically with Windows and runs in the background.
+4. To open settings, launch the app again.
+
+## Usage
+
+Once installed, there's nothing to do. Join a Discord call or start streaming, and Discord's session on **Sonar - Microphone** is muted automatically. Check the settings window to confirm the Sonar connection status.
+
+## Troubleshooting
+
+- **Discord went silent after enabling "Hide Sonar - Chat / Gaming":** turn that option off.
+- **Status shows "Sonar not found":** make sure Sonar is running. The app retries every 30 seconds.
+- **Something looks wrong:** open the log file from the settings window and attach it when reporting an issue.
+
+## Disclaimer
+
+This is an unofficial community tool and is **not affiliated with or endorsed by SteelSeries or Discord**. SteelSeries, Sonar, and Discord are trademarks of their respective owners. Use at your own risk.
+
 ## Limitations
 
 - Windows only, and **Sonar must be installed**
