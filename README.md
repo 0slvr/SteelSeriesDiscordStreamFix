@@ -8,6 +8,8 @@ A small Windows background utility that stops Discord audio from leaking into th
 
 Install it once, and it runs silently at Windows startup with no tray icon. To open the settings window, simply launch the app again.
 
+![Settings window](docs/settings.png)
+
 ## The Problem
 
 Sonar (part of SteelSeries GG) creates virtual audio devices in Windows, such as **Sonar - Gaming**, **Sonar - Chat**, and **Sonar - Microphone**. The idea is to route each app to the right channel and control each channel's volume separately.
