@@ -1,0 +1,138 @@
+﻿using System;
+using System.Threading;
+using System.Windows.Forms;
+using Velopack;
+
+namespace SteelSeriesDiscordStreamFix
+{
+    internal static class Program
+    {
+        private const string ShowSettingsEventName = "SteelSeriesDiscordStreamFix_ShowSettingsRequest_Event";
+
+        [STAThread]
+        static void Main()
+        {
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                Logger.Log("FATAL UnhandledException: " + (e.ExceptionObject as Exception)?.ToString()
+                    ?? e.ExceptionObject?.ToString());
+            };
+            Application.ThreadException += (s, e) =>
+            {
+                Logger.Log("FATAL ThreadException: " + e.Exception);
+                MessageBox.Show("An unexpected error occurred. Details were written to the log file.",
+                    "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+            VelopackApp.Build().Run();
+
+            TryEnableDpiAwareness();
+
+            Logger.Log($"Main() launched. exe={Application.ExecutablePath}");
+
+            bool isAutoStart = Array.Exists(Environment.GetCommandLineArgs(),
+                a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase));
+            if (isAutoStart)
+            {
+                Logger.Log("Detected --autostart launch (Windows startup) — Settings will not auto-open.");
+            }
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            using (var singleInstance = new Mutex(false, "SteelSeriesDiscordStreamFix_SingleInstance_Mutex"))
+            {
+                bool ownsMutex;
+                try
+                {
+                    ownsMutex = singleInstance.WaitOne(TimeSpan.FromMilliseconds(200));
+                }
+                catch (AbandonedMutexException)
+                {
+                    ownsMutex = true;
+                }
+
+                if (!ownsMutex)
+                {
+                    if (TrySignalRunningInstance())
+                    {
+                        return;
+                    }
+
+                    Logger.Log("Could not signal a running instance right away — retrying mutex acquisition briefly in case the previous instance is still exiting.");
+                    try
+                    {
+                        ownsMutex = singleInstance.WaitOne(TimeSpan.FromSeconds(3));
+                    }
+                    catch (AbandonedMutexException)
+                    {
+                        ownsMutex = true;
+                    }
+
+                    if (!ownsMutex)
+                    {
+                        if (!TrySignalRunningInstance())
+                        {
+                            MessageBox.Show("SteelSeries Discord Stream Fix is already running in the background.",
+                                "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        return;
+                    }
+                }
+
+                try
+                {
+                    using (var showSettingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSettingsEventName))
+                    {
+                        Application.Run(new MicMuterContext(showSettingsEvent, isAutoStart));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("FATAL top-level exception in Main(): " + ex);
+                }
+                finally
+                {
+                    try { singleInstance.ReleaseMutex(); } catch { }
+                }
+            }
+        }
+
+        private static bool TrySignalRunningInstance()
+        {
+            try
+            {
+                using (var showEvent = EventWaitHandle.OpenExisting(ShowSettingsEventName))
+                {
+                    showEvent.Set();
+                }
+                Logger.Log("Signaled running instance to show Settings.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("TrySignalRunningInstance failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static void TryEnableDpiAwareness()
+        {
+            try
+            {
+                SetProcessDpiAwarenessContext(new IntPtr(-4) /* PER_MONITOR_AWARE_V2 */);
+            }
+            catch
+            {
+                try { SetProcessDPIAware(); } catch { /* pre-Vista, irrelevant */ }
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetProcessDPIAware();
+    }
+}
