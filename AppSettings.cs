@@ -48,6 +48,36 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
+
+        private const string ValueNameWeHidDevices = "WeHidDevices";
+
+        /// <summary>True while this app has Sonar Chat/Gaming hidden (so we only restore what we hid).</summary>
+        public static bool WeHidDevices
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                    {
+                        if (key == null) return false;
+                        object value = key.GetValue(ValueNameWeHidDevices);
+                        return value != null && Convert.ToInt32(value) != 0;
+                    }
+                }
+                catch { return false; }
+            }
+            set
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+                        key?.SetValue(ValueNameWeHidDevices, value ? 1 : 0, RegistryValueKind.DWord);
+                }
+                catch (Exception ex) { Logger.Log("WeHidDevices write failed: " + ex.Message); }
+            }
+        }
+
         public static bool StartWithWindows
         {
             get

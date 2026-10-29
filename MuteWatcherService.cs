@@ -19,10 +19,10 @@ namespace SteelSeriesDiscordStreamFix
             "Sonar - Microphone"
         };
 
-        // Exact process names (without ".exe"). Only the stable Discord client is muted.
-        // To also mute other builds, add "DiscordPTB" and/or "DiscordCanary" here.
+        // Exact process names (without ".exe"): stable, PTB, Canary, dev builds and the Vesktop client.
         private static readonly HashSet<string> DiscordProcessNames =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Discord" };
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop" };
 
         // After a Discord session is first muted we defend that mute (Windows/Discord may restore the old
         // volume state right after the session opens). Once this window has passed, or after this many
@@ -267,6 +267,12 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Logger.Log("MuteSession failed: " + ex.Message);
 
+                // The session may simply have closed (Discord call ended / app restarted):
+                // that is not a real failure, so do not bother the user with a balloon.
+                bool stillTracked;
+                lock (_sessionsLock) { stillTracked = _trackedSessions.ContainsValue(session); }
+                if (!stillTracked || _disposed) return;
+
                 if (DateTime.UtcNow - _lastMuteProblemUtc >= MuteProblemThrottle)
                 {
                     _lastMuteProblemUtc = DateTime.UtcNow;
@@ -463,11 +469,18 @@ namespace SteelSeriesDiscordStreamFix
             });
         }
 
+        private int _disposeStarted;
+
         public void Dispose()
         {
-            lock (_lock)
+            if (System.Threading.Interlocked.Exchange(ref _disposeStarted, 1) == 1) return;
+            _disposed = true;
+            // A stuck Sonar/audio driver can leave a COM call running while it holds _lock.
+            // Wait a short while, then carry on so closing the app can never freeze the UI.
+            bool gotLock = System.Threading.Monitor.TryEnter(_lock, 3000);
+            if (!gotLock) Logger.Log("Dispose: could not take the lock within 3 s (COM call stuck?) — continuing anyway.");
+            try
             {
-                _disposed = true;
                 // We are going away, so stop forcing Discord muted: undo our mute on the way out.
                 try
                 {
@@ -483,8 +496,15 @@ namespace SteelSeriesDiscordStreamFix
                 _safetyNetTimer?.Dispose();
                 lock (_topologyLock) { _topologyDebounceTimer?.Dispose(); }
                 try { _enumerator.UnregisterEndpointNotificationCallback(this); } catch { }
-                UnbindCurrentDevice();
-                _enumerator.Dispose();
+                if (gotLock)
+                {
+                    UnbindCurrentDevice();
+                    _enumerator.Dispose();
+                }
+            }
+            finally
+            {
+                if (gotLock) System.Threading.Monitor.Exit(_lock);
             }
         }
 
@@ -496,6 +516,7 @@ namespace SteelSeriesDiscordStreamFix
             private readonly DateTime _trackedAtUtc = DateTime.UtcNow;
             private int _remuteCount;
             private int _respectLogged;
+            private volatile bool _closed;
 
             public DiscordSessionEventsHandler(int pid, MuteWatcherService owner, AudioSessionControl session)
             {
@@ -523,13 +544,14 @@ namespace SteelSeriesDiscordStreamFix
                 // so hand the re-mute to the thread pool.
                 Task.Run(() =>
                 {
-                    if (!_owner._disposed)
+                    if (!_owner._disposed && !_closed)
                         _owner.MuteSession(_session, "session was un-muted right after it opened — re-muting");
                 });
             }
 
             public void OnSessionDisconnected(AudioSessionDisconnectReason disconnectReason)
             {
+                _closed = true;
                 lock (_owner._sessionsLock)
                 {
                     _owner._trackedSessions.Remove(_pid);

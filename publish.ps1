@@ -1,4 +1,4 @@
-<#
+﻿<#
     publish.ps1  (split-repo version)
     ---------------------------------
     Two GitHub repos:

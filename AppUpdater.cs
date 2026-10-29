@@ -23,7 +23,7 @@ namespace SteelSeriesDiscordStreamFix
         /// restart the app. The update is installed silently when the app closes
         /// (for example at logoff/shutdown), so it never interrupts a game or a call.
         /// </summary>
-        public static async Task CheckAndStageAsync(string[] restartArgs = null)
+        public static async Task CheckAndStageAsync(string[] restartArgs = null, bool applyNowIfAutoStart = false)
         {
             try
             {
@@ -39,10 +39,19 @@ namespace SteelSeriesDiscordStreamFix
                 Logger.Log($"AppUpdater: update found -> {newVersion.TargetFullRelease.Version}");
                 await mgr.DownloadUpdatesAsync(newVersion);
 
-                // silent = true, restart = false: install when the app exits, no restart now.
-                mgr.WaitExitThenApplyUpdates(newVersion.TargetFullRelease, true, false, restartArgs);
-
                 PendingVersion = newVersion.TargetFullRelease.Version.ToString();
+
+                // This app almost never exits on its own, so waiting for exit could delay updates for weeks.
+                // At Windows login (--autostart) nobody is in a game or call yet, so apply and restart right away.
+                if (applyNowIfAutoStart)
+                {
+                    Logger.Log($"AppUpdater: update {PendingVersion} downloaded at startup — applying now.");
+                    mgr.ApplyUpdatesAndRestart(newVersion.TargetFullRelease, restartArgs);
+                    return;
+                }
+
+                // Otherwise install when the app exits (Exit button, logoff or shutdown).
+                mgr.WaitExitThenApplyUpdates(newVersion.TargetFullRelease, true, false, restartArgs);
                 Logger.Log($"AppUpdater: update {PendingVersion} downloaded; it will be installed when the app closes.");
             }
             catch (NotInstalledException)

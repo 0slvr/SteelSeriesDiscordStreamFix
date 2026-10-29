@@ -9,14 +9,52 @@ namespace SteelSeriesDiscordStreamFix
         private const string ChatDeviceNameFragment = "SteelSeries Sonar - Chat";
         private const string GamingDeviceNameFragment = "SteelSeries Sonar - Gaming";
 
-        public static void SetChatAndGamingVisible(bool visible)
+        /// <summary>Returns false if any matching device could not be changed.</summary>
+        public static bool SetChatAndGamingVisible(bool visible)
         {
-            SetEndpointVisible(ChatDeviceNameFragment, visible);
-            SetEndpointVisible(GamingDeviceNameFragment, visible);
+            bool a = SetEndpointVisible(ChatDeviceNameFragment, visible);
+            bool b = SetEndpointVisible(GamingDeviceNameFragment, visible);
+            return a && b;
         }
 
-        private static void SetEndpointVisible(string deviceNameFragment, bool visible)
+        /// <summary>
+        /// True if at least one Sonar Chat/Gaming device is not in the wanted state
+        /// (visible = Active, hidden = anything else). Lets callers skip no-op applies,
+        /// which is what breaks the hide -> notification -> hide loop.
+        /// </summary>
+        public static bool NeedsChange(bool visible)
         {
+            try
+            {
+                using (var enumerator = new MMDeviceEnumerator())
+                {
+                    foreach (MMDevice device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.All))
+                    {
+                        try
+                        {
+                            string name = device.FriendlyName;
+                            bool match = name.IndexOf(ChatDeviceNameFragment, StringComparison.OrdinalIgnoreCase) >= 0
+                                      || name.IndexOf(GamingDeviceNameFragment, StringComparison.OrdinalIgnoreCase) >= 0;
+                            if (!match) continue;
+                            bool isActive = device.State == DeviceState.Active;
+                            if (isActive != visible) return true;
+                        }
+                        catch { }
+                        finally { device.Dispose(); }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("NeedsChange failed: " + ex.Message);
+                return true;
+            }
+            return false;
+        }
+
+        private static bool SetEndpointVisible(string deviceNameFragment, bool visible)
+        {
+            bool allOk = true;
             using (var enumerator = new MMDeviceEnumerator())
             {
                 bool foundAny = false;
@@ -56,6 +94,7 @@ namespace SteelSeriesDiscordStreamFix
                             }
                             else
                             {
+                                allOk = false;
                                 Logger.Log($"SetEndpointVisible: call returned non-zero HRESULT=0x{hr:X8} for '{friendlyName}'");
                             }
                         }
@@ -66,6 +105,7 @@ namespace SteelSeriesDiscordStreamFix
                     }
                     catch (Exception ex)
                     {
+                        allOk = false;
                         Logger.Log($"SetEndpointVisible failed for '{friendlyName}' ({deviceNameFragment}) — " +
                                    "this can happen on Windows builds with a different IPolicyConfig vtable layout: " + ex);
                     }
@@ -76,6 +116,7 @@ namespace SteelSeriesDiscordStreamFix
                     Logger.Log($"SetEndpointVisible: no device matched name fragment '{deviceNameFragment}'");
                 }
             }
+            return allOk;
         }
     }
 }

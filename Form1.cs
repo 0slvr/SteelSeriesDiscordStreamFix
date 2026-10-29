@@ -26,6 +26,7 @@ namespace SteelSeriesDiscordStreamFix
         private ModernButton btnCheckUpdate;
         private Label labelUpdateStatus;
         private LinkLabel linkUninstall;
+        private LinkLabel linkExit;
         private Label labelStatus;
         private ModernButton btnOpenLog;
         private System.Windows.Forms.Timer _statusTimer;
@@ -214,7 +215,7 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Location = new Point(16, 14),
                 Size = new Size(384, 24),
-                Text = "Also hide SteelSeries Chat && Gaming devices",
+                Text = "Also hide Sonar Chat && Gaming (optional)",
                 AccentColor = ColorAccent,
                 BorderColor = ColorBorder,
                 TextColor = ColorTextPrimary,
@@ -231,6 +232,9 @@ namespace SteelSeriesDiscordStreamFix
                 TextColor = ColorTextPrimary,
                 Font = new Font("Segoe UI", 9.5F)
             };
+            new ToolTip().SetToolTip(chkDisable,
+                "Optional. SteelSeries recommends keeping Discord's output on Sonar - Chat; hiding it " +
+                "can cut Discord's audio. Turn this off if Discord goes silent.");
             panelGeneral.Controls.Add(chkDisable);
             panelGeneral.Controls.Add(chkStartWithWindows);
 
@@ -300,6 +304,21 @@ namespace SteelSeriesDiscordStreamFix
             };
             linkUninstall.LinkClicked += (s, e) => _uninstallApp();
 
+            linkExit = new LinkLabel
+            {
+                AutoSize = true,
+                Location = new Point(130, 476),
+                Text = "Exit app",
+                LinkColor = ColorTextSecondary,
+                ActiveLinkColor = ColorTextPrimary,
+                VisitedLinkColor = ColorTextSecondary,
+                LinkBehavior = LinkBehavior.HoverUnderline,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9.5F)
+            };
+            // Really quits: un-mutes Discord and brings back the Sonar devices we hid.
+            linkExit.LinkClicked += (s, e) => _exitApp();
+
             btnCancel = new ModernButton
             {
                 Text = "Cancel",
@@ -335,6 +354,7 @@ namespace SteelSeriesDiscordStreamFix
             Controls.Add(panelUpdate);
             Controls.Add(dividerBottom);
             Controls.Add(linkUninstall);
+            Controls.Add(linkExit);
             Controls.Add(btnCancel);
             Controls.Add(btnOk);
 
@@ -351,6 +371,7 @@ namespace SteelSeriesDiscordStreamFix
 
             if (Visible)
             {
+                LoadCurrentSettings(); // drop any unsaved changes from a previous Cancel/X/Esc
                 RefreshStatus();
                 _statusTimer.Start();
             }

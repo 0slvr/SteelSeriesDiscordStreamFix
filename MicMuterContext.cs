@@ -19,8 +19,11 @@ namespace SteelSeriesDiscordStreamFix
         private bool _watcherStarted;
 
         private volatile bool _exiting;
+        private int _cleanedUp;
         private readonly object _applyLock = new object();
-        private DateTime _lastApplyUtc = DateTime.MinValue;
+        private readonly System.Collections.Generic.Queue<DateTime> _recentApplies = new System.Collections.Generic.Queue<DateTime>();
+        private const int MaxAppliesPerMinute = 5;
+        private bool _hideFailureNotified;
 
         private string[] RestartArgs => _isAutoStart ? new[] { "--autostart" } : Array.Empty<string>();
 
@@ -39,7 +42,11 @@ namespace SteelSeriesDiscordStreamFix
             }
             _uiContext = SynchronizationContext.Current;
 
-            _ = AppUpdater.CheckAndStageAsync(RestartArgs);
+            // Windows logoff/shutdown does not go through ExitApp(), so clean up here as well.
+            Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
+            Application.ApplicationExit += (s, e) => Cleanup();
+
+            _ = AppUpdater.CheckAndStageAsync(RestartArgs, isAutoStart);
 
             ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
 
@@ -133,17 +140,41 @@ namespace SteelSeriesDiscordStreamFix
             _balloon = null;
         }
 
+        private void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
+        {
+            Logger.Log("MicMuterContext: Windows session ending (" + e.Reason + ") — restoring devices and un-muting Discord.");
+            Cleanup();
+        }
+
         private void OnDeviceTopologyChanged()
         {
-            // Our own show/hide calls fire device events too. Ignore events that arrive right after
-            // we applied the setting, otherwise apply -> event -> apply -> ... could loop forever.
-            if (DateTime.UtcNow - _lastApplyUtc < TimeSpan.FromSeconds(6))
+            if (_exiting) return;
+
+            bool disable = AppSettings.SavedDisableSteelSeries;
+
+            // Our own hide/show calls make Windows raise device notifications. Only act when the devices are
+            // really not in the wanted state; after our change they are, so the chain stops by itself.
+            if (!SteelSeriesToggle.NeedsChange(!disable))
             {
-                Logger.Log("MicMuterContext: topology event right after our own change — ignored (loop guard).");
+                Logger.Log("MicMuterContext: topology event — Sonar Chat/Gaming already in the wanted state, nothing to do.");
                 return;
             }
+
+            // Safety net on top of the state check: never more than a few applies per minute.
+            lock (_applyLock)
+            {
+                var now = DateTime.UtcNow;
+                while (_recentApplies.Count > 0 && now - _recentApplies.Peek() > TimeSpan.FromMinutes(1))
+                    _recentApplies.Dequeue();
+                if (_recentApplies.Count >= MaxAppliesPerMinute)
+                {
+                    Logger.Log("MicMuterContext: too many device changes in a minute — skipping (loop protection).");
+                    return;
+                }
+            }
+
             Logger.Log("MicMuterContext: device topology changed — reapplying SteelSeries chat/gaming visibility.");
-            ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
+            ApplySteelSeriesSetting(disable);
         }
 
         private void StartShowSettingsListener()
@@ -187,13 +218,7 @@ namespace SteelSeriesDiscordStreamFix
 
             try
             {
-                SteelSeriesToggle.SetChatAndGamingVisible(true);
-
-                _exiting = true;
-                try { _showSettingsEvent.Set(); } catch { }
-
-                _watcher.Dispose();
-                HideBalloon();
+                Cleanup();
 
                 AppSettings.StartWithWindows = false;
 
@@ -257,9 +282,26 @@ namespace SteelSeriesDiscordStreamFix
             // Serialized: the UI thread and the topology timer thread must never run this at the same time.
             lock (_applyLock)
             {
-                try { SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
+                // Option off: only bring devices back if WE hid them. Never force-show devices the user
+                // hid some other way.
+                if (!disable && !AppSettings.WeHidDevices) return;
+
+                _recentApplies.Enqueue(DateTime.UtcNow);
+                bool ok = false;
+                try { ok = SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
                 catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
-                _lastApplyUtc = DateTime.UtcNow;
+
+                if (ok)
+                {
+                    AppSettings.WeHidDevices = disable;
+                    _hideFailureNotified = false;
+                }
+                else if (!_hideFailureNotified)
+                {
+                    _hideFailureNotified = true;
+                    OnWatcherProblem("Could not " + (disable ? "hide" : "show") +
+                        " the SteelSeries Chat/Gaming devices. A Windows update may have changed the undocumented API this relies on. See the log file.");
+                }
             }
         }
 
@@ -279,14 +321,34 @@ namespace SteelSeriesDiscordStreamFix
 
         private void ExitApp()
         {
-            _exiting = true;
-            try { _showSettingsEvent.Set(); } catch { }
-            _watcher.Dispose();
-            // Leave Windows as we found it: bring the Sonar Chat/Gaming devices back on exit.
-            // (They are hidden again automatically the next time the app starts.)
-            try { SteelSeriesToggle.SetChatAndGamingVisible(true); } catch { }
-            HideBalloon();
+            Cleanup();
             Application.Exit();
+        }
+
+        /// <summary>
+        /// Leaves Windows as we found it: un-mutes Discord and brings back the Sonar Chat/Gaming devices we hid.
+        /// Safe to call several times and from any exit path (Exit, logoff, shutdown, uninstall).
+        /// </summary>
+        private void Cleanup()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _cleanedUp, 1) == 1) return;
+
+            _exiting = true;
+            try { Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding; } catch { }
+            try { _showSettingsEvent.Set(); } catch { }
+            try { _watcher.Dispose(); } catch (Exception ex) { Logger.Log("Cleanup: watcher dispose failed: " + ex.Message); }
+
+            // Restore only what we hid. (They are hidden again automatically the next time the app starts.)
+            if (AppSettings.WeHidDevices)
+            {
+                try
+                {
+                    if (SteelSeriesToggle.SetChatAndGamingVisible(true))
+                        AppSettings.WeHidDevices = false;
+                }
+                catch (Exception ex) { Logger.Log("Cleanup: restoring devices failed: " + ex.Message); }
+            }
+            try { HideBalloon(); } catch { }
         }
     }
 }
