@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 
 namespace SteelSeriesDiscordStreamFix
@@ -14,6 +15,22 @@ namespace SteelSeriesDiscordStreamFix
         private const long MaxLogSizeBytes = 1 * 1024 * 1024; // 1 MB cap
 
         private static readonly object LockObj = new object();
+
+        public static string LogFilePath => LogPath;
+
+        public static void OpenLogFile()
+        {
+            try
+            {
+                Directory.CreateDirectory(LogDir);
+                if (!File.Exists(LogPath)) File.WriteAllText(LogPath, string.Empty);
+                Process.Start(new ProcessStartInfo { FileName = LogPath, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Log("OpenLogFile failed: " + ex.Message);
+            }
+        }
 
         public static void Log(string message)
         {

@@ -10,7 +10,18 @@ namespace SteelSeriesDiscordStreamFix
     {
         private const string GithubRepoUrl = "https://github.com/0slvr/SteelSeriesDiscordStreamFix";
 
-        public static async Task CheckAndApplyAsync(string[] restartArgs = null)
+        /// <summary>
+        /// Version of an update that was downloaded in the background and will be
+        /// installed the next time the app exits. Null when nothing is pending.
+        /// </summary>
+        public static string PendingVersion { get; private set; }
+
+        /// <summary>
+        /// Background check at startup: downloads a new version if there is one, but does NOT
+        /// restart the app. The update is installed silently when the app closes
+        /// (for example at logoff/shutdown), so it never interrupts a game or a call.
+        /// </summary>
+        public static async Task CheckAndStageAsync(string[] restartArgs = null)
         {
             try
             {
@@ -26,7 +37,11 @@ namespace SteelSeriesDiscordStreamFix
                 Logger.Log($"AppUpdater: update found -> {newVersion.TargetFullRelease.Version}");
                 await mgr.DownloadUpdatesAsync(newVersion);
 
-                mgr.ApplyUpdatesAndRestart(newVersion, restartArgs);
+                // silent = true, restart = false: install when the app exits, no restart now.
+                mgr.WaitExitThenApplyUpdates(newVersion.TargetFullRelease, true, false, restartArgs);
+
+                PendingVersion = newVersion.TargetFullRelease.Version.ToString();
+                Logger.Log($"AppUpdater: update {PendingVersion} downloaded; it will be installed when the app closes.");
             }
             catch (NotInstalledException)
             {

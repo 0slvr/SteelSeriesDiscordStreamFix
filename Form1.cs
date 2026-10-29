@@ -26,6 +26,10 @@ namespace SteelSeriesDiscordStreamFix
         private ModernButton btnCheckUpdate;
         private Label labelUpdateStatus;
         private LinkLabel linkUninstall;
+        private Label labelStatus;
+        private ModernButton btnOpenLog;
+        private System.Windows.Forms.Timer _statusTimer;
+        private readonly Func<string> _getStatus;
 
         private readonly Action<bool> _applySteelSeriesSetting;
         private readonly Action _exitApp;
@@ -33,8 +37,9 @@ namespace SteelSeriesDiscordStreamFix
         private readonly Action _ensureWatcherStarted;
         private readonly string[] _updateRestartArgs;
 
-        public Form1(Action<bool> applySteelSeriesSetting, Action exitApp, Action uninstallApp, Action ensureWatcherStarted, string[] updateRestartArgs)
+        public Form1(Action<bool> applySteelSeriesSetting, Action exitApp, Action uninstallApp, Action ensureWatcherStarted, string[] updateRestartArgs, Func<string> getStatus = null)
         {
+            _getStatus = getStatus;
             _applySteelSeriesSetting = applySteelSeriesSetting;
             _exitApp = exitApp;
             _uninstallApp = uninstallApp;
@@ -81,7 +86,7 @@ namespace SteelSeriesDiscordStreamFix
             SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(480, 460);
+            ClientSize = new Size(480, 548);
             Name = "Form1";
             Text = "SteelSeries Discord Stream Fix — Settings";
             ResumeLayout(false);
@@ -130,9 +135,58 @@ namespace SteelSeriesDiscordStreamFix
                 BackColor = Color.Transparent
             };
 
+            var labelStatusCaption = new Label
+            {
+                AutoSize = false,
+                Location = new Point(32, 140),
+                Size = new Size(300, 16),
+                Text = "STATUS",
+                ForeColor = ColorTextSecondary,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                BackColor = Color.Transparent
+            };
+
+            var panelStatus = new RoundedPanel
+            {
+                Location = new Point(32, 160),
+                Size = new Size(416, 60),
+                FillColor = ColorSurface,
+                CornerRadius = 14
+            };
+
+            labelStatus = new Label
+            {
+                AutoSize = false,
+                Location = new Point(16, 8),
+                Size = new Size(290, 44),
+                Text = "",
+                ForeColor = ColorTextSecondary,
+                Font = new Font("Segoe UI", 8.5F),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            btnOpenLog = new ModernButton
+            {
+                Text = "Open log",
+                Size = new Size(88, 32),
+                Location = new Point(312, 14),
+                BaseColor = ColorSurfaceHover,
+                HoverColor = ColorBorder,
+                TextColor = ColorTextPrimary,
+                BorderColor = ColorBorder
+            };
+            btnOpenLog.Click += (s, e) => Logger.OpenLogFile();
+
+            panelStatus.Controls.Add(labelStatus);
+            panelStatus.Controls.Add(btnOpenLog);
+
+            _statusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _statusTimer.Tick += (s, e) => RefreshStatus();
+
             var dividerTop = new Panel
             {
-                Location = new Point(32, 140),
+                Location = new Point(32, 228),
                 Size = new Size(416, 1),
                 BackColor = ColorBorder
             };
@@ -140,7 +194,7 @@ namespace SteelSeriesDiscordStreamFix
             var labelGeneralCaption = new Label
             {
                 AutoSize = false,
-                Location = new Point(32, 152),
+                Location = new Point(32, 240),
                 Size = new Size(300, 16),
                 Text = "PREFERENCES",
                 ForeColor = ColorTextSecondary,
@@ -150,7 +204,7 @@ namespace SteelSeriesDiscordStreamFix
 
             var panelGeneral = new RoundedPanel
             {
-                Location = new Point(32, 172),
+                Location = new Point(32, 260),
                 Size = new Size(416, 88),
                 FillColor = ColorSurface,
                 CornerRadius = 14
@@ -183,7 +237,7 @@ namespace SteelSeriesDiscordStreamFix
             var labelUpdateCaption = new Label
             {
                 AutoSize = false,
-                Location = new Point(32, 272),
+                Location = new Point(32, 360),
                 Size = new Size(300, 16),
                 Text = "UPDATES",
                 ForeColor = ColorTextSecondary,
@@ -193,7 +247,7 @@ namespace SteelSeriesDiscordStreamFix
 
             var panelUpdate = new RoundedPanel
             {
-                Location = new Point(32, 292),
+                Location = new Point(32, 380),
                 Size = new Size(416, 64),
                 FillColor = ColorSurface,
                 CornerRadius = 14
@@ -227,7 +281,7 @@ namespace SteelSeriesDiscordStreamFix
 
             var dividerBottom = new Panel
             {
-                Location = new Point(32, 372),
+                Location = new Point(32, 460),
                 Size = new Size(416, 1),
                 BackColor = ColorBorder
             };
@@ -235,7 +289,7 @@ namespace SteelSeriesDiscordStreamFix
             linkUninstall = new LinkLabel
             {
                 AutoSize = true,
-                Location = new Point(32, 388),
+                Location = new Point(32, 476),
                 Text = "Uninstall...",
                 LinkColor = ColorDanger,
                 ActiveLinkColor = ColorDanger,
@@ -250,7 +304,7 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Text = "Cancel",
                 Size = new Size(90, 36),
-                Location = new Point(238, 408),
+                Location = new Point(238, 496),
                 BaseColor = ColorSurface,
                 HoverColor = ColorSurfaceHover,
                 TextColor = ColorTextPrimary,
@@ -262,7 +316,7 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Text = "Save",
                 Size = new Size(108, 36),
-                Location = new Point(340, 408),
+                Location = new Point(340, 496),
                 BaseColor = ColorAccent,
                 HoverColor = ColorAccentHover,
                 TextColor = Color.White
@@ -272,6 +326,8 @@ namespace SteelSeriesDiscordStreamFix
             Controls.Add(accentBar);
             Controls.Add(labelTitle);
             Controls.Add(labelInstructions);
+            Controls.Add(labelStatusCaption);
+            Controls.Add(panelStatus);
             Controls.Add(dividerTop);
             Controls.Add(labelGeneralCaption);
             Controls.Add(panelGeneral);
@@ -286,6 +342,40 @@ namespace SteelSeriesDiscordStreamFix
             CancelButton = null;
             KeyPreview = true;
             KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) CloseOrHide(); };
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (_statusTimer == null) return;
+
+            if (Visible)
+            {
+                RefreshStatus();
+                _statusTimer.Start();
+            }
+            else
+            {
+                _statusTimer.Stop();
+            }
+        }
+
+        private void RefreshStatus()
+        {
+            string status = _getStatus?.Invoke() ?? string.Empty;
+            labelStatus.Text = status;
+
+            if (status.StartsWith("Connected to", StringComparison.Ordinal))
+                labelStatus.ForeColor = Color.FromArgb(110, 200, 140);
+            else if (status.StartsWith("Not started", StringComparison.Ordinal))
+                labelStatus.ForeColor = ColorTextSecondary;
+            else
+                labelStatus.ForeColor = ColorDanger;
+
+            if (AppUpdater.PendingVersion != null && btnCheckUpdate.Enabled && string.IsNullOrEmpty(labelUpdateStatus.Text))
+            {
+                labelUpdateStatus.Text = $"Version {AppUpdater.PendingVersion} is ready - it installs when you close the app.";
+            }
         }
 
         private void CloseOrHide()

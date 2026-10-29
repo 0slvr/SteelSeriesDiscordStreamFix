@@ -11,7 +11,37 @@ namespace SteelSeriesDiscordStreamFix
     {
         public const string MicEndpointNameFragment = "SteelSeries Sonar - Microphone";
 
+        // Tried in order. The second, shorter fragment still matches if SteelSeries
+        // renames the product prefix (e.g. "SteelSeries GG Sonar - Microphone").
+        private static readonly string[] EndpointNameFragments =
+        {
+            MicEndpointNameFragment,
+            "Sonar - Microphone"
+        };
+
+        // Exact process names (without ".exe"). Only the stable Discord client is muted.
+        // To also mute other builds, add "DiscordPTB" and/or "DiscordCanary" here.
+        private static readonly HashSet<string> DiscordProcessNames =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Discord" };
+
+        private const int TickIntervalMs = 30 * 1000;
+        private static readonly TimeSpan BoundCheckInterval = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan NotFoundNotifyDelay = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan MuteProblemThrottle = TimeSpan.FromMinutes(10);
+
         public event Action DeviceTopologyChanged;
+
+        /// <summary>Raised (on a thread-pool thread) when <see cref="StatusText"/> changes.</summary>
+        public event Action StatusChanged;
+
+        /// <summary>
+        /// Raised (on a thread-pool thread) when something the user should know about goes wrong,
+        /// e.g. the Sonar microphone device can't be found or Discord can't be muted.
+        /// </summary>
+        public event Action<string> ProblemDetected;
+
+        private volatile string _statusText = "Not started yet (press Save to begin).";
+        public string StatusText => _statusText;
 
         private readonly MMDeviceEnumerator _enumerator = new MMDeviceEnumerator();
         private readonly object _lock = new object();
@@ -24,6 +54,12 @@ namespace SteelSeriesDiscordStreamFix
         private System.Windows.Forms.Timer _safetyNetTimer;
         private System.Threading.Timer _topologyDebounceTimer;
         private volatile bool _disposed;
+
+        private DateTime _lastDeviceCheckUtc = DateTime.MinValue;
+        private DateTime? _notFoundSinceUtc;
+        private bool _notFoundNotified;
+        private bool _notFoundLogged;
+        private DateTime _lastMuteProblemUtc = DateTime.MinValue;
 
         public void Start()
         {
@@ -38,11 +74,13 @@ namespace SteelSeriesDiscordStreamFix
                 Logger.Log("Start: initial BindToTargetDevice failed, will retry via safety net/device events: " + ex);
             }
 
-            _safetyNetTimer = new System.Windows.Forms.Timer { Interval = 5 * 60 * 1000 };
+            // Ticks every 30 s. While the device is missing, every tick retries the bind;
+            // once bound, the real device check only runs every 5 minutes.
+            _safetyNetTimer = new System.Windows.Forms.Timer { Interval = TickIntervalMs };
             _safetyNetTimer.Tick += (s, e) => SafetyNetCheck();
             _safetyNetTimer.Start();
 
-            Logger.Log("MuteWatcherService started (event-driven, 5-minute safety net).");
+            Logger.Log("MuteWatcherService started (event-driven; retries every 30 s while the device is missing, 5-minute safety net once bound).");
         }
 
         private void BindToTargetDevice()
@@ -66,12 +104,25 @@ namespace SteelSeriesDiscordStreamFix
 
                 if (found == null)
                 {
-                    Logger.Log("MuteWatcherService: target microphone endpoint not found (will retry on next device-change event or safety-net tick).");
+                    if (!_notFoundSinceUtc.HasValue) _notFoundSinceUtc = DateTime.UtcNow;
+
+                    if (!_notFoundLogged)
+                    {
+                        _notFoundLogged = true;
+                        Logger.Log("MuteWatcherService: target microphone endpoint not found (will retry on every device-change event and every 30 s).");
+                    }
+
+                    SetStatus("Sonar microphone device not found. Is SteelSeries GG / Sonar running? Retrying every 30 seconds.");
                     return;
                 }
 
                 _targetDevice = found;
+                _notFoundSinceUtc = null;
+                _notFoundNotified = false;
+                _notFoundLogged = false;
+                _lastDeviceCheckUtc = DateTime.UtcNow;
                 Logger.Log($"MuteWatcherService: bound to '{_targetDevice.FriendlyName}' (id={_targetDevice.ID})");
+                SetStatus($"Connected to \"{_targetDevice.FriendlyName}\" - Discord auto-mute is active.");
 
                 try
                 {
@@ -87,19 +138,42 @@ namespace SteelSeriesDiscordStreamFix
                 catch (Exception ex)
                 {
                     Logger.Log("BindToTargetDevice: session manager setup failed: " + ex);
+                    SetStatus("Connected, but could not watch audio sessions - see the log file.");
+                    RaiseProblem("Could not watch audio sessions on the Sonar microphone device. Discord may not be muted. See the log file for details.");
                 }
             }
         }
 
         private MMDevice FindTargetDevice()
         {
+            var devices = new List<MMDevice>();
             foreach (MMDevice device in _enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+                devices.Add(device);
+
+            MMDevice match = null;
+            foreach (string fragment in EndpointNameFragments)
             {
-                if (device.FriendlyName.IndexOf(MicEndpointNameFragment, StringComparison.OrdinalIgnoreCase) >= 0)
-                    return device;
-                device.Dispose();
+                foreach (MMDevice device in devices)
+                {
+                    string name;
+                    try { name = device.FriendlyName; }
+                    catch { continue; }
+
+                    if (name.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        match = device;
+                        break;
+                    }
+                }
+                if (match != null) break;
             }
-            return null;
+
+            foreach (MMDevice device in devices)
+            {
+                if (!ReferenceEquals(device, match))
+                    device.Dispose();
+            }
+            return match;
         }
 
         private void OnSessionCreated(object sender, IAudioSessionControl newSession)
@@ -138,7 +212,7 @@ namespace SteelSeriesDiscordStreamFix
                 return;
             }
 
-            if (processName.IndexOf("Discord", StringComparison.OrdinalIgnoreCase) < 0) return;
+            if (!DiscordProcessNames.Contains(processName)) return;
 
             lock (_lock)
             {
@@ -167,6 +241,12 @@ namespace SteelSeriesDiscordStreamFix
             catch (Exception ex)
             {
                 Logger.Log("MuteSession failed: " + ex.Message);
+
+                if (DateTime.UtcNow - _lastMuteProblemUtc >= MuteProblemThrottle)
+                {
+                    _lastMuteProblemUtc = DateTime.UtcNow;
+                    RaiseProblem("Could not mute Discord on the Sonar microphone device: " + ex.Message);
+                }
             }
         }
 
@@ -195,14 +275,24 @@ namespace SteelSeriesDiscordStreamFix
 
         private void SafetyNetCheck()
         {
+            string problem = null;
+
             lock (_lock)
             {
                 if (_disposed) return;
 
-                bool stillValid = _targetDevice != null && DeviceStillExists(_targetDevice.ID);
+                bool bound = _targetDevice != null;
+
+                // Once bound, only do the (cheap) device check every 5 minutes.
+                if (bound && DateTime.UtcNow - _lastDeviceCheckUtc < BoundCheckInterval) return;
+                _lastDeviceCheckUtc = DateTime.UtcNow;
+
+                bool stillValid = bound && DeviceStillExists(_targetDevice.ID);
                 if (!stillValid)
                 {
-                    Logger.Log("SafetyNetCheck: target device missing or changed — rebinding.");
+                    if (bound)
+                        Logger.Log("SafetyNetCheck: target device missing or changed - rebinding.");
+
                     try
                     {
                         BindToTargetDevice();
@@ -212,7 +302,19 @@ namespace SteelSeriesDiscordStreamFix
                         Logger.Log("SafetyNetCheck: rebind failed, will retry next tick: " + ex);
                     }
                 }
+
+                if (_targetDevice == null
+                    && _notFoundSinceUtc.HasValue
+                    && !_notFoundNotified
+                    && DateTime.UtcNow - _notFoundSinceUtc.Value >= NotFoundNotifyDelay)
+                {
+                    _notFoundNotified = true;
+                    problem = "The \"SteelSeries Sonar - Microphone\" device was not found, so Discord is NOT being auto-muted. " +
+                              "Make sure SteelSeries GG / Sonar is running.";
+                }
             }
+
+            if (problem != null) RaiseProblem(problem);
         }
 
         private bool DeviceStillExists(string deviceId)
@@ -292,6 +394,35 @@ namespace SteelSeriesDiscordStreamFix
                     }
                 }, null, 1500, System.Threading.Timeout.Infinite);
             }
+        }
+
+        private void SetStatus(string text)
+        {
+            if (_statusText == text) return;
+            _statusText = text;
+            Raise(StatusChanged);
+        }
+
+        private void RaiseProblem(string message)
+        {
+            Logger.Log("PROBLEM: " + message);
+            var handler = ProblemDetected;
+            if (handler == null || _disposed) return;
+            Task.Run(() =>
+            {
+                try { handler(message); }
+                catch (Exception ex) { Logger.Log("ProblemDetected handler failed: " + ex.Message); }
+            });
+        }
+
+        private void Raise(Action handler)
+        {
+            if (handler == null || _disposed) return;
+            Task.Run(() =>
+            {
+                try { handler(); }
+                catch (Exception ex) { Logger.Log("StatusChanged handler failed: " + ex.Message); }
+            });
         }
 
         public void Dispose()

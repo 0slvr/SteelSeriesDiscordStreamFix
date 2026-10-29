@@ -14,6 +14,8 @@ namespace SteelSeriesDiscordStreamFix
         private readonly SynchronizationContext _uiContext;
         private readonly bool _isAutoStart;
         private Form1 _settingsForm;
+        private NotifyIcon _balloon;
+        private DateTime _lastBalloonUtc = DateTime.MinValue;
         private bool _watcherStarted;
 
         private volatile bool _exiting;
@@ -24,6 +26,7 @@ namespace SteelSeriesDiscordStreamFix
         {
             _watcher = new MuteWatcherService();
             _watcher.DeviceTopologyChanged += OnDeviceTopologyChanged;
+            _watcher.ProblemDetected += OnWatcherProblem;
             _showSettingsEvent = showSettingsEvent;
             _isAutoStart = isAutoStart;
 
@@ -34,7 +37,7 @@ namespace SteelSeriesDiscordStreamFix
             }
             _uiContext = SynchronizationContext.Current;
 
-            _ = AppUpdater.CheckAndApplyAsync(RestartArgs);
+            _ = AppUpdater.CheckAndStageAsync(RestartArgs);
 
             ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
 
@@ -70,6 +73,62 @@ namespace SteelSeriesDiscordStreamFix
             _watcherStarted = true;
             _watcher.Start();
             Logger.Log("MicMuterContext: mute watcher started, running in background, no tray icon.");
+        }
+
+        // Problems are shown as a short-lived balloon notification (no permanent tray icon).
+        private void OnWatcherProblem(string message)
+        {
+            if (_exiting) return;
+            _uiContext.Post(_ => ShowBalloon(message), null);
+        }
+
+        private void ShowBalloon(string message)
+        {
+            if (_exiting) return;
+            if (DateTime.UtcNow - _lastBalloonUtc < TimeSpan.FromSeconds(60)) return;
+            _lastBalloonUtc = DateTime.UtcNow;
+
+            try
+            {
+                HideBalloon();
+
+                _balloon = new NotifyIcon
+                {
+                    Icon = System.Drawing.SystemIcons.Warning,
+                    Visible = true,
+                    BalloonTipTitle = "SteelSeries Discord Stream Fix",
+                    BalloonTipText = message,
+                    BalloonTipIcon = ToolTipIcon.Warning
+                };
+                _balloon.BalloonTipClicked += (s, e) => { HideBalloon(); ShowSettings(); };
+                _balloon.BalloonTipClosed += (s, e) => HideBalloon();
+                _balloon.ShowBalloonTip(10000);
+
+                var hideTimer = new System.Windows.Forms.Timer { Interval = 15000 };
+                hideTimer.Tick += (s, e) =>
+                {
+                    hideTimer.Stop();
+                    hideTimer.Dispose();
+                    HideBalloon();
+                };
+                hideTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("ShowBalloon failed: " + ex);
+            }
+        }
+
+        private void HideBalloon()
+        {
+            if (_balloon == null) return;
+            try
+            {
+                _balloon.Visible = false;
+                _balloon.Dispose();
+            }
+            catch { }
+            _balloon = null;
         }
 
         private void OnDeviceTopologyChanged()
@@ -125,6 +184,7 @@ namespace SteelSeriesDiscordStreamFix
                 try { _showSettingsEvent.Set(); } catch { }
 
                 _watcher.Dispose();
+                HideBalloon();
 
                 AppSettings.StartWithWindows = false;
 
@@ -195,7 +255,7 @@ namespace SteelSeriesDiscordStreamFix
 
             if (_settingsForm == null || _settingsForm.IsDisposed)
             {
-                _settingsForm = new Form1(ApplySteelSeriesSetting, ExitApp, UninstallApp, EnsureWatcherStarted, RestartArgs);
+                _settingsForm = new Form1(ApplySteelSeriesSetting, ExitApp, UninstallApp, EnsureWatcherStarted, RestartArgs, () => _watcher.StatusText);
             }
             _settingsForm.Show();
             _settingsForm.WindowState = FormWindowState.Normal;
@@ -208,6 +268,7 @@ namespace SteelSeriesDiscordStreamFix
             _exiting = true;
             try { _showSettingsEvent.Set(); } catch { }
             _watcher.Dispose();
+            HideBalloon();
             Application.Exit();
         }
     }
