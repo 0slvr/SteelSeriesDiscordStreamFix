@@ -8,7 +8,9 @@ namespace SteelSeriesDiscordStreamFix
 {
     internal static class AppUpdater
     {
-        private const string GithubRepoUrl = "https://github.com/0slvr/SteelSeriesDiscordStreamFix";
+        // Update files (full/delta/releases.win.json) live in this separate repo.
+        // Users download Setup.exe from the main repo; the app itself reads updates from here.
+        private const string GithubRepoUrl = "https://github.com/0slvr/SteelSeriesDiscordStreamFix-updates";
 
         /// <summary>
         /// Version of an update that was downloaded in the background and will be
