@@ -46,6 +46,11 @@ namespace SteelSeriesDiscordStreamFix
         private readonly MMDeviceEnumerator _enumerator = new MMDeviceEnumerator();
         private readonly object _lock = new object();
         private readonly object _topologyLock = new object();
+        // Guards ONLY the two session dictionaries. Never held while calling into COM, and it is the only
+        // lock the WASAPI callback handlers take, so a callback can never deadlock against Bind/Dispose.
+        private readonly object _sessionsLock = new object();
+        private volatile string _targetDeviceId;
+        private int _safetyNetRunning;
         private readonly Dictionary<int, AudioSessionControl> _trackedSessions = new Dictionary<int, AudioSessionControl>();
         private readonly Dictionary<int, DiscordSessionEventsHandler> _sessionEventHandlers = new Dictionary<int, DiscordSessionEventsHandler>();
 
@@ -77,7 +82,17 @@ namespace SteelSeriesDiscordStreamFix
             // Ticks every 30 s. While the device is missing, every tick retries the bind;
             // once bound, the real device check only runs every 5 minutes.
             _safetyNetTimer = new System.Windows.Forms.Timer { Interval = TickIntervalMs };
-            _safetyNetTimer.Tick += (s, e) => SafetyNetCheck();
+            _safetyNetTimer.Tick += (s, e) =>
+            {
+                // Run the COM work off the UI thread so a slow audio driver can't freeze the window.
+                if (System.Threading.Interlocked.Exchange(ref _safetyNetRunning, 1) == 1) return;
+                Task.Run(() =>
+                {
+                    try { SafetyNetCheck(); }
+                    catch (Exception ex) { Logger.Log("SafetyNetCheck failed: " + ex); }
+                    finally { System.Threading.Interlocked.Exchange(ref _safetyNetRunning, 0); }
+                });
+            };
             _safetyNetTimer.Start();
 
             Logger.Log("MuteWatcherService started (event-driven; retries every 30 s while the device is missing, 5-minute safety net once bound).");
@@ -117,6 +132,7 @@ namespace SteelSeriesDiscordStreamFix
                 }
 
                 _targetDevice = found;
+                _targetDeviceId = found.ID;
                 _notFoundSinceUtc = null;
                 _notFoundNotified = false;
                 _notFoundLogged = false;
@@ -132,7 +148,8 @@ namespace SteelSeriesDiscordStreamFix
                     SessionCollection sessions = _sessionManager.Sessions;
                     for (int i = 0; i < sessions.Count; i++)
                     {
-                        TrackIfDiscord(sessions[i]);
+                        var s = sessions[i];
+                        if (!TrackIfDiscord(s)) { try { s.Dispose(); } catch { } }
                     }
                 }
                 catch (Exception ex)
@@ -183,7 +200,7 @@ namespace SteelSeriesDiscordStreamFix
             try
             {
                 var session = new AudioSessionControl(newSession);
-                TrackIfDiscord(session);
+                if (!TrackIfDiscord(session)) { try { session.Dispose(); } catch { } }
             }
             catch (Exception ex)
             {
@@ -191,15 +208,15 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
-        private void TrackIfDiscord(AudioSessionControl session)
+        private bool TrackIfDiscord(AudioSessionControl session)
         {
-            if (_disposed) return;
+            if (_disposed) return false;
 
             int pid;
             try { pid = (int)session.GetProcessID; }
-            catch { return; }
+            catch { return false; }
 
-            if (pid == 0) return;
+            if (pid == 0) return false;
 
             string processName;
             try
@@ -209,23 +226,23 @@ namespace SteelSeriesDiscordStreamFix
             }
             catch
             {
-                return;
+                return false;
             }
 
-            if (!DiscordProcessNames.Contains(processName)) return;
+            if (!DiscordProcessNames.Contains(processName)) return false;
 
-            lock (_lock)
+            var handler = new DiscordSessionEventsHandler(pid, this, session);
+            lock (_sessionsLock)
             {
-                if (_disposed) return;
-                if (_trackedSessions.ContainsKey(pid)) return;
+                if (_disposed) return false;
+                if (_trackedSessions.ContainsKey(pid)) return false;
                 _trackedSessions[pid] = session;
+                _sessionEventHandlers[pid] = handler;
             }
 
             MuteSession(session, $"new Discord session detected (pid={pid})");
-
-            var handler = new DiscordSessionEventsHandler(pid, this, session);
             session.RegisterEventClient(handler);
-            lock (_lock) { _sessionEventHandlers[pid] = handler; }
+            return true;
         }
 
         private void MuteSession(AudioSessionControl session, string reason)
@@ -258,19 +275,28 @@ namespace SteelSeriesDiscordStreamFix
                 _sessionManager = null;
             }
 
-            foreach (var kv in _trackedSessions)
+            KeyValuePair<int, AudioSessionControl>[] tracked;
+            Dictionary<int, DiscordSessionEventsHandler> handlers;
+            lock (_sessionsLock)
             {
-                if (_sessionEventHandlers.TryGetValue(kv.Key, out var h))
+                tracked = new List<KeyValuePair<int, AudioSessionControl>>(_trackedSessions).ToArray();
+                handlers = new Dictionary<int, DiscordSessionEventsHandler>(_sessionEventHandlers);
+                _sessionEventHandlers.Clear();
+                _trackedSessions.Clear();
+            }
+
+            foreach (var kv in tracked)
+            {
+                if (handlers.TryGetValue(kv.Key, out var h))
                 {
                     try { kv.Value.UnRegisterEventClient(h); } catch { }
                 }
 
                 try { kv.Value.Dispose(); } catch { }
             }
-            _sessionEventHandlers.Clear();
-            _trackedSessions.Clear();
             _targetDevice?.Dispose();
             _targetDevice = null;
+            _targetDeviceId = null;
         }
 
         private void SafetyNetCheck()
@@ -332,26 +358,26 @@ namespace SteelSeriesDiscordStreamFix
 
         public void OnDeviceAdded(string deviceId)
         {
-            ScheduleTopologyRecheck();
+            ScheduleTopologyRecheck(deviceId);
             ScheduleTopologyChangedNotification();
         }
 
         public void OnDeviceRemoved(string deviceId)
         {
-            ScheduleTopologyRecheck();
+            ScheduleTopologyRecheck(deviceId);
             ScheduleTopologyChangedNotification();
         }
 
         public void OnDeviceStateChanged(string deviceId, DeviceState newState)
         {
-            ScheduleTopologyRecheck();
+            ScheduleTopologyRecheck(deviceId);
             ScheduleTopologyChangedNotification();
         }
 
         public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId) { }
         public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
 
-        private void ScheduleTopologyRecheck()
+        private void ScheduleTopologyRecheck(string changedDeviceId)
         {
             if (_disposed) return;
             Task.Run(() =>
@@ -361,8 +387,12 @@ namespace SteelSeriesDiscordStreamFix
                     lock (_lock)
                     {
                         if (_disposed) return;
+                        // If the event concerns our own endpoint (Sonar restart, audio service restart, resume
+                        // from sleep) the device ID is unchanged but the old session manager is dead, so rebind
+                        // even though the device looks "Active" again.
+                        bool isOurs = changedDeviceId != null && changedDeviceId == _targetDeviceId;
                         bool currentStillValid = _targetDevice != null && DeviceStillExists(_targetDevice.ID);
-                        if (!currentStillValid)
+                        if (!currentStillValid || isOurs)
                             BindToTargetDevice();
                     }
                 }
@@ -430,6 +460,17 @@ namespace SteelSeriesDiscordStreamFix
             lock (_lock)
             {
                 _disposed = true;
+                // We are going away, so stop forcing Discord muted: undo our mute on the way out.
+                try
+                {
+                    AudioSessionControl[] sessions;
+                    lock (_sessionsLock) { sessions = new List<AudioSessionControl>(_trackedSessions.Values).ToArray(); }
+                    foreach (var s in sessions)
+                    {
+                        try { s.SimpleAudioVolume.Mute = false; } catch { }
+                    }
+                }
+                catch { }
                 _safetyNetTimer?.Stop();
                 _safetyNetTimer?.Dispose();
                 lock (_topologyLock) { _topologyDebounceTimer?.Dispose(); }
@@ -454,20 +495,31 @@ namespace SteelSeriesDiscordStreamFix
 
             public void OnVolumeChanged(float volume, bool isMuted)
             {
-                if (_owner._disposed) return;
-                if (!isMuted)
-                    _owner.MuteSession(_session, "session was un-muted externally — re-muting");
+                if (_owner._disposed || isMuted) return;
+                // WASAPI forbids calling back into the audio engine from inside a notification
+                // callback (can stall/deadlock the audio engine and freeze Windows volume UI),
+                // so hand the re-mute to the thread pool.
+                Task.Run(() =>
+                {
+                    if (!_owner._disposed)
+                        _owner.MuteSession(_session, "session was un-muted externally — re-muting");
+                });
             }
 
             public void OnSessionDisconnected(AudioSessionDisconnectReason disconnectReason)
             {
-                lock (_owner._lock)
+                lock (_owner._sessionsLock)
                 {
                     _owner._trackedSessions.Remove(_pid);
                     _owner._sessionEventHandlers.Remove(_pid);
                 }
-                try { _session.Dispose(); } catch { }
-                Logger.Log($"Discord session (pid={_pid}) disconnected: {disconnectReason}");
+                // Do not release the COM session from inside its own callback.
+                Task.Run(() =>
+                {
+                    try { _session.UnRegisterEventClient(this); } catch { }
+                    try { _session.Dispose(); } catch { }
+                    Logger.Log($"Discord session (pid={_pid}) disconnected: {disconnectReason}");
+                });
             }
 
             public void OnDisplayNameChanged(string displayName) { }

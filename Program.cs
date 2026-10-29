@@ -9,17 +9,24 @@ namespace SteelSeriesDiscordStreamFix
     {
         private const string ShowSettingsEventName = "SteelSeriesDiscordStreamFix_ShowSettingsRequest_Event";
 
+        private static DateTime _lastErrorDialogUtc = DateTime.MinValue;
+
         [STAThread]
         static void Main()
         {
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
-                Logger.Log("FATAL UnhandledException: " + (e.ExceptionObject as Exception)?.ToString()
-                    ?? e.ExceptionObject?.ToString());
+                Logger.Log("FATAL UnhandledException: " +
+                    ((e.ExceptionObject as Exception)?.ToString() ?? e.ExceptionObject?.ToString()));
+                try { SteelSeriesToggle.SetChatAndGamingVisible(true); } catch { }
             };
             Application.ThreadException += (s, e) =>
             {
                 Logger.Log("FATAL ThreadException: " + e.Exception);
+                // Show the dialog at most once per minute so a repeating timer error can't spam the user.
+                var nowUtc = DateTime.UtcNow;
+                if (nowUtc - _lastErrorDialogUtc < TimeSpan.FromMinutes(1)) return;
+                _lastErrorDialogUtc = nowUtc;
                 MessageBox.Show("An unexpected error occurred. Details were written to the log file.",
                     "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };

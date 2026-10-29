@@ -19,6 +19,8 @@ namespace SteelSeriesDiscordStreamFix
         private bool _watcherStarted;
 
         private volatile bool _exiting;
+        private readonly object _applyLock = new object();
+        private DateTime _lastApplyUtc = DateTime.MinValue;
 
         private string[] RestartArgs => _isAutoStart ? new[] { "--autostart" } : Array.Empty<string>();
 
@@ -133,6 +135,13 @@ namespace SteelSeriesDiscordStreamFix
 
         private void OnDeviceTopologyChanged()
         {
+            // Our own show/hide calls fire device events too. Ignore events that arrive right after
+            // we applied the setting, otherwise apply -> event -> apply -> ... could loop forever.
+            if (DateTime.UtcNow - _lastApplyUtc < TimeSpan.FromSeconds(6))
+            {
+                Logger.Log("MicMuterContext: topology event right after our own change — ignored (loop guard).");
+                return;
+            }
             Logger.Log("MicMuterContext: device topology changed — reapplying SteelSeries chat/gaming visibility.");
             ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
         }
@@ -245,8 +254,13 @@ namespace SteelSeriesDiscordStreamFix
 
         private void ApplySteelSeriesSetting(bool disable)
         {
-            try { SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
-            catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
+            // Serialized: the UI thread and the topology timer thread must never run this at the same time.
+            lock (_applyLock)
+            {
+                try { SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
+                catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
+                _lastApplyUtc = DateTime.UtcNow;
+            }
         }
 
         private void ShowSettings()
@@ -268,6 +282,9 @@ namespace SteelSeriesDiscordStreamFix
             _exiting = true;
             try { _showSettingsEvent.Set(); } catch { }
             _watcher.Dispose();
+            // Leave Windows as we found it: bring the Sonar Chat/Gaming devices back on exit.
+            // (They are hidden again automatically the next time the app starts.)
+            try { SteelSeriesToggle.SetChatAndGamingVisible(true); } catch { }
             HideBalloon();
             Application.Exit();
         }
