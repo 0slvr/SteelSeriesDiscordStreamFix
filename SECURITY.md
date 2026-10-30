@@ -21,11 +21,6 @@ released as a new version, and reporters will be credited if they wish.
 
 ## Update Mechanism
 
-<<<<<<< HEAD
-The app downloads updates from this GitHub repository's Releases. Updates are
-currently **not code-signed**. To verify a download manually, compare its
-SHA256 hash with the one listed in the release notes.
-=======
 The app checks for updates in the background and downloads them from a
 GitHub-hosted Velopack update feed. This is separate from this repository's
 Releases page, which only contains the installer.
@@ -34,4 +29,3 @@ Velopack verifies the checksums listed in the feed before installing a
 package. Updates are currently **not code-signed**, so Windows SmartScreen
 may warn about the installer. To verify an installer manually, compare its
 SHA256 hash with the one listed in the release notes (newer releases).
->>>>>>> eca412c (Release v1.0.26)
