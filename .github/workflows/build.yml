@@ -7,5 +7,5 @@
          - uses: actions/checkout@v4
          - uses: microsoft/setup-msbuild@v2
          - uses: nuget/setup-nuget@v2
-         - run: nuget restore SteelSeriesDiscordStreamFix.csproj -PackagesDirectory packages
+         - run: nuget restore SteelSeriesDiscordStreamFix.csproj -PackagesDirectory ..\packages
          - run: msbuild SteelSeriesDiscordStreamFix.csproj /p:Configuration=Release
