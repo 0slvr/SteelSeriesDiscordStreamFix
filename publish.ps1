@@ -119,7 +119,7 @@ function Test-HasReleases([string]$url) {
 # Upload the Velopack update files (full/delta/json/Setup) with vpk.
 function Upload-Vpk([string]$url) {
     Run vpk @("upload", "github", "--repoUrl", $url, "--token", $env:GH_TOKEN,
-              "--publish", "--tag", "v$version", "--releaseName", "v$version",
+              "--publish", "--pre", "--tag", "v$version", "--releaseName", "v$version",
               "-o", $releasesDir) | Out-Null
 }
 
@@ -129,7 +129,7 @@ function Publish-SetupOnlyRelease([string]$url, [string]$branchName, [string]$se
     $h = Get-GhHeaders
     $api = "https://api.github.com/repos/$($p.Owner)/$($p.Name)"
 
-    $payload = @{ tag_name = "v$version"; name = "v$version"; body = $body; draft = $true; prerelease = $false }
+    $payload = @{ tag_name = "v$version"; name = "v$version"; body = $body; draft = $true; prerelease = $true }
     if ($branchName) { $payload.target_commitish = $branchName }
     $bytes = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json))
     $rel = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $h -Body $bytes -ContentType "application/json; charset=utf-8"
@@ -137,7 +137,7 @@ function Publish-SetupOnlyRelease([string]$url, [string]$branchName, [string]$se
     $upload = "https://uploads.github.com/repos/$($p.Owner)/$($p.Name)/releases/$($rel.id)/assets?name=$([uri]::EscapeDataString($setupName))"
     Invoke-RestMethod -Method Post -Uri $upload -Headers $h -InFile $setupPath -ContentType "application/octet-stream" | Out-Null
 
-    $pub = [Text.Encoding]::UTF8.GetBytes((@{ draft = $false; make_latest = "true" } | ConvertTo-Json))
+    $pub = [Text.Encoding]::UTF8.GetBytes((@{ draft = $false; make_latest = "false" } | ConvertTo-Json))
     Invoke-RestMethod -Method Patch -Uri "$api/releases/$($rel.id)" -Headers $h -Body $pub -ContentType "application/json; charset=utf-8" | Out-Null
 }
 
