@@ -72,6 +72,32 @@ namespace SteelSeriesDiscordStreamFix.Launcher
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool AllowSetForegroundWindow(int dwProcessId);
 
+        // Must match Program.cs in the app.
+        private const string ShowSettingsEventName = "SteelSeriesDiscordStreamFix_ShowSettingsRequest_Event";
+
+        /// <summary>
+        /// Opens the Settings window: if the app already runs, signal it directly from here (this process was just
+        /// clicked, so it is allowed to hand the window the focus); otherwise start it, which opens Settings itself.
+        /// </summary>
+        public static void OpenSettings()
+        {
+            try { AllowSetForegroundWindow(-1 /* ASFW_ANY */); } catch { }
+            try
+            {
+                using (var ev = EventWaitHandle.OpenExisting(ShowSettingsEventName))
+                {
+                    ev.Set();
+                    Log.Write("Signaled the running app to show Settings.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("No running app to signal (" + ex.Message + "), starting it.");
+            }
+            Launch(null);
+        }
+
         /// <summary>Starts the installed app. If it is already running it just shows its Settings window.</summary>
         public static void Launch(string arguments)
         {

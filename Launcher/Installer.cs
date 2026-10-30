@@ -60,9 +60,8 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 InstalledApp.RequestExitAndWait(8000);
                 Log.Write("Running copy handled.");
 
-                // 3. Velopack's own Setup, silent. It starts the app without arguments, so a one-time registry flag
-                //    tells the app to start quietly (no Settings window) this once.
-                SetQuietFlag(true);
+                // 3. Velopack's own Setup, silent. It starts the app without arguments, so the app opens its
+                //    Settings window right after the install (that is the user's confirmation that it worked).
                 Directory.CreateDirectory(Log.Dir);
                 string setupLog = Path.Combine(Log.Dir, "setup-log.txt");
                 var psi = new ProcessStartInfo
@@ -135,8 +134,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 // Setup has exited, so its install hook is done: a short grace period is enough for it to have started the app.
                 if (!WaitForStableRunning(3000))
                 {
-                    SetQuietFlag(false);
-                    InstalledApp.Launch("--autostart");
+                    InstalledApp.Launch(null);
                 }
 
                 return null;

@@ -59,12 +59,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 using (var form = new SetupForm(thisVersion.ToString()))
                 {
                     Application.Run(form);
-                    if (form.Installed)
-                    {
-                        MessageBox.Show("Version " + thisVersion + " is installed and protecting Discord in the background.\n\n" +
-                                        "Open this file again any time to change the settings.",
-                            Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
+                    // No extra message: the app's own Settings window opens when the install is done.
                 }
                 return 0;
             }
@@ -90,17 +85,14 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                         Application.Run(wait);
                     }
 
-                    if (error == null)
-                        MessageBox.Show("Updated to version " + thisVersion + ". Your settings were kept.", Title,
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    else
+                    if (error != null)
                         MessageBox.Show(error, Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return error == null ? 0 : 1;
                 }
             }
 
             // Same version, newer version, or the user said "no": just open what is installed.
-            InstalledApp.Launch(null);
+            InstalledApp.OpenSettings();
             return 0;
         }
 
