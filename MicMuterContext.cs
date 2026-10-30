@@ -12,10 +12,13 @@ namespace SteelSeriesDiscordStreamFix
     {
         private readonly MuteWatcherService _watcher;
         private readonly EventWaitHandle _showSettingsEvent;
+        private readonly EventWaitHandle _exitRequestEvent;
         private readonly SynchronizationContext _uiContext;
         private readonly bool _isAutoStart;
         private Form1 _settingsForm;
         private NotifyIcon _balloon;
+        private NotifyIcon _updateBalloon;
+        private bool _updatePromptOpen;
         private DateTime _lastBalloonUtc = DateTime.MinValue;
         private bool _watcherStarted;
 
@@ -33,12 +36,13 @@ namespace SteelSeriesDiscordStreamFix
 
         private string[] RestartArgs => _isAutoStart ? new[] { "--autostart" } : Array.Empty<string>();
 
-        public MicMuterContext(EventWaitHandle showSettingsEvent, bool isAutoStart)
+        public MicMuterContext(EventWaitHandle showSettingsEvent, EventWaitHandle exitRequestEvent, bool isAutoStart)
         {
             _watcher = new MuteWatcherService();
             _watcher.DeviceTopologyChanged += OnDeviceTopologyChanged;
             _watcher.ProblemDetected += OnWatcherProblem;
             _showSettingsEvent = showSettingsEvent;
+            _exitRequestEvent = exitRequestEvent;
             _isAutoStart = isAutoStart;
 
             if (SynchronizationContext.Current == null)
@@ -56,8 +60,11 @@ namespace SteelSeriesDiscordStreamFix
             Application.ApplicationExit += (s, e) => Cleanup();
 
             // Updates are applied by closing the app through ExitApp() so Cleanup() always runs first.
+            // Nothing is downloaded or installed automatically: a found update only raises a notification and
+            // the user decides (Update now / Skip this version / Later).
             AppUpdater.RequestExit = () => _uiContext.Post(_ => ExitApp(), null);
-            _ = AppUpdater.RunPeriodicChecksAsync(() => _exiting, RestartArgs, isAutoStart);
+            AppUpdater.UpdateFound += OnUpdateFound;
+            _ = AppUpdater.RunPeriodicChecksAsync(() => _exiting);
 
             // Enumerating every audio endpoint can be slow right after login (audio service still starting),
             // so do it off the UI thread instead of delaying the window / the whole app.
@@ -176,6 +183,81 @@ namespace SteelSeriesDiscordStreamFix
             _pendingBalloonTimer.Start();
         }
 
+        private void OnUpdateFound(string version)
+        {
+            if (_exiting) return;
+            _uiContext.Post(_ => ShowUpdateBalloon(version), null);
+        }
+
+        // A normal Windows notification. Clicking it opens the Update now / Skip / Later prompt; ignoring it
+        // changes nothing (the Settings window also shows the available update).
+        private void ShowUpdateBalloon(string version)
+        {
+            if (_exiting) return;
+
+            try
+            {
+                HideUpdateBalloon();
+
+                _updateBalloon = new NotifyIcon
+                {
+                    Icon = System.Drawing.SystemIcons.Information,
+                    Visible = true,
+                    BalloonTipTitle = "SteelSeries Discord Stream Fix",
+                    BalloonTipText = "Version " + version + " is available. Click to update, skip it, or decide later.",
+                    BalloonTipIcon = ToolTipIcon.Info
+                };
+                _updateBalloon.BalloonTipClicked += (s, e) => { HideUpdateBalloon(); ShowUpdatePrompt(); };
+                _updateBalloon.BalloonTipClosed += (s, e) => HideUpdateBalloon();
+                _updateBalloon.ShowBalloonTip(10000);
+
+                var hideTimer = new System.Windows.Forms.Timer { Interval = 15000 };
+                hideTimer.Tick += (s, e) =>
+                {
+                    hideTimer.Stop();
+                    hideTimer.Dispose();
+                    HideUpdateBalloon();
+                };
+                hideTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("ShowUpdateBalloon failed: " + ex);
+            }
+        }
+
+        private void HideUpdateBalloon()
+        {
+            if (_updateBalloon == null) return;
+            try
+            {
+                _updateBalloon.Visible = false;
+                _updateBalloon.Dispose();
+            }
+            catch { }
+            _updateBalloon = null;
+        }
+
+        private void ShowUpdatePrompt()
+        {
+            if (_exiting || _updatePromptOpen || AppUpdater.AvailableVersion == null) return;
+
+            _updatePromptOpen = true;
+            try
+            {
+                using (var prompt = new UpdatePromptForm(RestartArgs))
+                    prompt.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("ShowUpdatePrompt failed: " + ex);
+            }
+            finally
+            {
+                _updatePromptOpen = false;
+            }
+        }
+
         private void HideBalloon()
         {
             if (_balloon == null) return;
@@ -233,11 +315,20 @@ namespace SteelSeriesDiscordStreamFix
         {
             var thread = new Thread(() =>
             {
+                var handles = new WaitHandle[] { _showSettingsEvent, _exitRequestEvent };
                 while (!_exiting)
                 {
-                    if (_showSettingsEvent.WaitOne())
+                    int signaled = WaitHandle.WaitAny(handles);
                     {
                         if (_exiting) break;
+
+                        if (signaled == 1)
+                        {
+                            // The installer/launcher wants to replace the files: quit through the normal path.
+                            Logger.Log("Exit requested by the installer — closing through the normal exit path.");
+                            _uiContext.Post(_ => ExitApp(), null);
+                            continue;
+                        }
 
                         try
                         {
@@ -415,6 +506,8 @@ namespace SteelSeriesDiscordStreamFix
             }
             try { _pendingBalloons.Clear(); _pendingBalloonTimer?.Stop(); _pendingBalloonTimer?.Dispose(); } catch { }
             try { HideBalloon(); } catch { }
+            try { AppUpdater.UpdateFound -= OnUpdateFound; } catch { }
+            try { HideUpdateBalloon(); } catch { }
         }
     }
 }

@@ -6,7 +6,7 @@
 
 A small Windows background utility that stops Discord audio from leaking into the **SteelSeries Sonar** virtual microphone, which is especially useful when streaming or recording.
 
-Install it once, and it runs silently at Windows startup with no tray icon. To open the settings window, simply launch the app again.
+Download one file, pick your options, press **Save**. It runs in the background from then on, with no tray icon. To open the settings window, simply open the file again.
 
 ![Settings window](docs/settings.png)
 
@@ -42,11 +42,17 @@ This is optional because SteelSeries recommends keeping Discord's output on the 
 ## Installation
 
 1. Make sure **SteelSeries GG** is installed and running.
-2. Download the latest installer from the [Releases](../../releases) page.
-3. Run it once. The app starts automatically with Windows and runs in the background.
-4. To open settings, launch the app again.
+2. Download `SteelSeriesDiscordStreamFix-win-Setup.exe` from the [Releases](../../releases) page.
+3. Open it. A small window shows the options. **Nothing is installed until you press Save.** Then it installs for your Windows account only (no admin rights) and starts protecting Discord.
+4. To change settings later, open the same file again (or run the app from the Start menu).
 
-## Usage
+**Already installed?** Opening a newer file asks whether to update. Choose *No* and your installed version simply opens, nothing changes.
+
+> The file is not code-signed yet, so Windows SmartScreen may warn on first run ("More info" > "Run anyway").
+
+## Updates
+
+The app checks for new versions in the background but **never installs one by itself**. When a version is found you get a normal Windows notification. Click it to choose **Update now**, **Skip this version** (no more notifications for it) or **Later**. The Settings window shows the same choices, and **Check for Updates** works at any time.
 
 Once installed, there's nothing to do. Join a Discord call or start streaming, and Discord's session on **Sonar - Microphone** is muted automatically. Check the settings window to confirm the Sonar connection status.
 

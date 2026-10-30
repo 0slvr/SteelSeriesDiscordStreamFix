@@ -2,7 +2,9 @@
     publish.ps1  (split-repo version)
     ---------------------------------
     Two GitHub repos:
-      * MAIN repo    (users see it): each release contains ONLY Setup.exe
+      * MAIN repo    (users see it): each release contains ONLY the launcher file
+                                     (SteelSeriesDiscordStreamFix-win-Setup.exe). It opens an options window
+                                     first and installs the embedded Velopack Setup only when the user presses Save.
       * UPDATES repo (hidden)      : holds the Velopack update files
                                      (full.nupkg, delta.nupkg, releases.win.json ...)
                                      and is the repo AppUpdater.cs reads from.
@@ -59,6 +61,9 @@ $iconPath    = Join-Path $root $iconFile
 $asmInfoPath = Join-Path $root "Properties\AssemblyInfo.cs"
 $updaterPath = Join-Path $root "AppUpdater.cs"
 $setupName   = "$appId-win-Setup.exe"
+$launcherProject = Join-Path $root "Launcher\SteelSeriesDiscordStreamFix.Launcher.csproj"
+$launcherDir     = Join-Path $root "publish-launcher"
+$launcherPath    = Join-Path $launcherDir $setupName   # same file name as before: the download link does not change
 $notesFile   = Join-Path $env:TEMP "release-notes-$appId.md"
 
 # ---------------- Helpers ----------------
@@ -208,7 +213,7 @@ try {
         GitOut fetch --tags --quiet | Out-Null
 
         $gitignorePath = Join-Path $root ".gitignore"
-        $needed = @("publish/", "Releases/", "logs/", "bin/", "obj/", ".vs/")
+        $needed = @("publish/", "publish-launcher/", "Releases/", "logs/", "bin/", "obj/", ".vs/")
         $existing = @()
         if (Test-Path $gitignorePath) { $existing = Get-Content $gitignorePath }
         $missing = $needed | Where-Object { $existing -notcontains $_ -and $existing -notcontains "/$_" }
@@ -306,6 +311,15 @@ try {
 
         if (-not (Test-Path (Join-Path $releasesDir $setupName))) { throw "$setupName was not created in $releasesDir" }
 
+        # ---------------- 4b. Launcher (the single file users download) ----------------
+        # Velopack's Setup.exe stays untouched (it is also what the update feed contains). The launcher embeds it,
+        # shows the options window first and only runs it when the user presses Save.
+        Step "Building the launcher (embeds Velopack's Setup.exe)"
+        if (Test-Path $launcherDir) { Remove-Item $launcherDir -Recurse -Force }
+        Run dotnet @("build", $launcherProject, "-c", "Release", "-o", $launcherDir, "-p:Version=$version",
+                     "-p:SetupExe=$(Join-Path $releasesDir $setupName)", "--nologo") | Out-Null
+        if (-not (Test-Path $launcherPath)) { throw "Launcher build finished but '$setupName' is missing in $launcherDir" }
+
         # ---------------- 5. Source code ----------------
         if (-not $DryRun) { Set-Content -Path $versionFile -Value $version -NoNewline }
 
@@ -368,10 +382,11 @@ try {
 
                 if (Test-ReleaseTag $repoUrl "v$version") { Info "v$version already exists in the main repo, skipping." }
                 else {
-                    Step "Creating Setup-only release in the main repo"
-                    $setupHash = (Get-FileHash -Path (Join-Path $releasesDir $setupName) -Algorithm SHA256).Hash
-                    $body = "**Download: $setupName** and run it. Updates install automatically.`n`n$notesText`n`nSHA256 ($setupName): ``$setupHash``"
-                    Publish-SetupOnlyRelease $repoUrl $branch (Join-Path $releasesDir $setupName) $body
+                    Step "Creating launcher-only release in the main repo"
+                    if (-not (Test-Path $launcherPath)) { throw "Launcher not found at $launcherPath. Run without -UploadOnly once so it gets built." }
+                    $setupHash = (Get-FileHash -Path $launcherPath -Algorithm SHA256).Hash
+                    $body = "**Download: $setupName**, open it, choose your options and press Save. If an older version is installed it asks whether to update. The app only tells you about new versions; it never installs one without your OK.`n`n$notesText`n`nSHA256 ($setupName): ``$setupHash``"
+                    Publish-SetupOnlyRelease $repoUrl $branch $launcherPath $body
                 }
             }
         }
@@ -408,4 +423,4 @@ finally {
     if ($transcriptOn) { try { Stop-Transcript | Out-Null } catch { } }
 }
 
-exit $exitCode
+exit $exitCode

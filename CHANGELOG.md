@@ -12,6 +12,9 @@ All notable changes to this project are documented here.
 - **Warnings are no longer silently dropped.** Balloon notifications are limited to one per minute, but a warning that arrived inside that minute used to be lost. It is now queued and shown afterwards (duplicates are skipped).
 
 ### Changed
+- **One download file with an options window.** `SteelSeriesDiscordStreamFix-win-Setup.exe` is now a small launcher: it opens an options window first and installs only when you press **Save** (no silent install, no Next-Next wizard). If an older version is installed, it asks whether to update; choosing *No* just opens the installed version. Under the hood it embeds Velopack's Setup, so uninstall from Windows Settings, the Start menu shortcut and existing installs keep working.
+- **Updates are never installed automatically anymore.** The background check (every 12 hours) only shows a Windows notification. Click it to choose **Update now**, **Skip this version** or **Later**. The Settings window shows the same choices ("Update to X" / "Skip this version"). Previously an update was downloaded silently and installed when the app closed, and applied at once after Windows login.
+- When the launcher updates a running copy, it asks the app to quit through its normal exit path first, so Discord is un-muted and the Sonar devices are restored before the files are replaced.
 - **Closing the first-run window without saving now asks first.** The app tells you that Discord is not protected yet and lets you stay in the window, instead of quitting silently.
 
 ### Added

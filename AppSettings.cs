@@ -149,6 +149,34 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
+        private const string ValueNameSkippedUpdate = "SkippedUpdateVersion";
+
+        /// <summary>Version the user chose "Skip this version" for. No notifications for it; a newer one notifies again.</summary>
+        public static string SkippedUpdateVersion
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                        return key?.GetValue(ValueNameSkippedUpdate) as string;
+                }
+                catch { return null; }
+            }
+            set
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+                    {
+                        if (string.IsNullOrEmpty(value)) key?.DeleteValue(ValueNameSkippedUpdate, false);
+                        else key?.SetValue(ValueNameSkippedUpdate, value, RegistryValueKind.String);
+                    }
+                }
+                catch (Exception ex) { Logger.Log("SkippedUpdateVersion write failed: " + ex.Message); }
+            }
+        }
+
         private const string ValueNameSettingsConfirmed = "SettingsConfirmed";
 
         public static bool HasConfirmedSettings

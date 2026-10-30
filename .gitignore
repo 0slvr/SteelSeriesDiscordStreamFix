@@ -437,3 +437,6 @@ obj/
 *.rar
 *.zip
 *.7z
+
+# added by publish.ps1
+publish-launcher/

@@ -7,6 +7,12 @@ using Velopack.Sources;
 
 namespace SteelSeriesDiscordStreamFix
 {
+    /// <summary>
+    /// Update checks are informational only: the app NEVER downloads or installs anything by itself.
+    /// A background check finds a new version and raises <see cref="UpdateFound"/> (the app shows a Windows
+    /// notification); the user then chooses Update now / Skip this version / Later. The same choice is
+    /// available in the Settings window.
+    /// </summary>
     internal static class AppUpdater
     {
         // Update files (full/delta/releases.win.json) live in this separate repo.
@@ -14,136 +20,119 @@ namespace SteelSeriesDiscordStreamFix
         private const string GithubRepoUrl = "https://github.com/0slvr/SteelSeriesDiscordStreamFix-updates";
 
         // The app almost never exits on its own, so a single check at startup would leave long-running
-        // installs on an old version for weeks. Re-check regularly; retry sooner after a failure
+        // installs unaware of new versions for weeks. Re-check regularly; retry sooner after a failure
         // (typically no network yet right after Windows login).
         private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(12);
         private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(15);
 
-        // Background and manual checks must never run at the same time.
+        // Background checks, manual checks and the download must never run at the same time.
         private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
 
         private static volatile bool _notInstalled;
         private static volatile bool _lastCheckFailed;
 
+        private static UpdateManager _manager;
+        private static UpdateInfo _info;
+        private static string _notifiedVersion;
+
         /// <summary>
-        /// Version of an update that was downloaded in the background and will be
-        /// installed the next time the app exits. Null when nothing is pending.
+        /// Version that is available on the server and newer than the running one (not downloaded yet).
+        /// Null when the app is up to date or has not checked yet.
         /// </summary>
-        public static string PendingVersion { get; private set; }
+        public static string AvailableVersion { get; private set; }
+
+        /// <summary>
+        /// Raised (from a background thread) when a background check finds a version the user has not
+        /// skipped, once per version per app run. Subscribers must marshal to the UI thread themselves.
+        /// </summary>
+        public static event Action<string> UpdateFound;
 
         /// <summary>
         /// Set by the app: closes the app through its NORMAL exit path (on the UI thread), so cleanup runs
-        /// first (Sonar devices restored, Discord un-muted). Used to apply an update that is waiting.
+        /// first (Sonar devices restored, Discord un-muted). Used to apply an update.
         /// </summary>
         public static Action RequestExit { get; set; }
 
-        /// <summary>
-        /// Checks for updates now and then every few hours until one has been downloaded.
-        /// Never throws.
-        /// </summary>
-        public static async Task RunPeriodicChecksAsync(Func<bool> isExiting, string[] restartArgs = null, bool applyNowIfAutoStart = false)
+        public static bool IsSkipped(string version)
         {
-            bool first = true;
+            return !string.IsNullOrEmpty(version) &&
+                   string.Equals(AppSettings.SkippedUpdateVersion, version, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>"Skip this version": no more notifications for it. A newer version notifies again.</summary>
+        public static void SkipAvailable()
+        {
+            var v = AvailableVersion;
+            if (v == null) return;
+            AppSettings.SkippedUpdateVersion = v;
+            Logger.Log("AppUpdater: user skipped version " + v + ".");
+        }
+
+        /// <summary>Checks for updates now and then every few hours. Never throws, never installs anything.</summary>
+        public static async Task RunPeriodicChecksAsync(Func<bool> isExiting)
+        {
             while (!isExiting())
             {
-                await CheckAndStageAsync(restartArgs, first && applyNowIfAutoStart);
-                first = false;
+                await CheckForUpdateAsync(background: true, statusCallback: null);
 
-                // Running from source, or an update is already waiting to be installed at exit.
-                if (_notInstalled || PendingVersion != null) return;
+                if (_notInstalled) return; // running from source, nothing to check
 
                 try { await Task.Delay(_lastCheckFailed ? RetryAfterFailure : CheckInterval); }
                 catch { return; }
             }
         }
 
-        /// <summary>
-        /// Background check: downloads a new version if there is one, but does NOT restart the app
-        /// immediately. The update is installed silently when the app closes (for example at
-        /// logoff/shutdown), so it never interrupts a game or a call.
-        /// </summary>
-        public static async Task CheckAndStageAsync(string[] restartArgs = null, bool applyNowIfAutoStart = false)
+        public static async Task<UpdateCheckResult> CheckForUpdateAsync(bool background, Action<string> statusCallback)
         {
             await Gate.WaitAsync();
             try
             {
-                if (PendingVersion != null) return; // already downloaded and waiting
-
                 _lastCheckFailed = false;
-                var mgr = new UpdateManager(new GithubSource(GithubRepoUrl, null, false));
+                statusCallback?.Invoke("Checking for updates...");
 
+                var mgr = new UpdateManager(new GithubSource(GithubRepoUrl, null, false));
                 var newVersion = await mgr.CheckForUpdatesAsync();
                 if (newVersion == null)
                 {
-                    Logger.Log("AppUpdater: no update available.");
-                    return;
+                    _manager = null;
+                    _info = null;
+                    AvailableVersion = null;
+                    Logger.Log("AppUpdater" + (background ? "" : " (manual)") + ": no update available.");
+                    return UpdateCheckResult.UpToDate;
                 }
 
-                Logger.Log($"AppUpdater: update found -> {newVersion.TargetFullRelease.Version}");
-                await mgr.DownloadUpdatesAsync(newVersion);
+                string version = newVersion.TargetFullRelease.Version.ToString();
+                _manager = mgr;
+                _info = newVersion;
+                AvailableVersion = version;
+                Logger.Log("AppUpdater" + (background ? "" : " (manual)") + ": update found -> " + version);
 
-                PendingVersion = newVersion.TargetFullRelease.Version.ToString();
-
-                // At Windows login (--autostart) nobody is in a game or call yet, so apply and restart right away.
-                if (applyNowIfAutoStart)
+                if (background)
                 {
-                    Logger.Log($"AppUpdater: update {PendingVersion} downloaded at startup — applying now.");
-                    ApplyAfterNormalExit(mgr, newVersion, restartArgs);
-                    return;
+                    if (IsSkipped(version))
+                    {
+                        Logger.Log("AppUpdater: version " + version + " was skipped by the user, not notifying.");
+                    }
+                    else if (_notifiedVersion != version)
+                    {
+                        _notifiedVersion = version;
+                        try { UpdateFound?.Invoke(version); }
+                        catch (Exception ex) { Logger.Log("AppUpdater: UpdateFound handler failed: " + ex.Message); }
+                    }
                 }
 
-                // Otherwise install when the app exits (Exit button, logoff or shutdown).
-                mgr.WaitExitThenApplyUpdates(newVersion.TargetFullRelease, true, false, restartArgs);
-                Logger.Log($"AppUpdater: update {PendingVersion} downloaded; it will be installed when the app closes.");
+                return UpdateCheckResult.UpdateAvailable;
             }
             catch (NotInstalledException)
             {
                 _notInstalled = true;
                 Logger.Log("AppUpdater: running from source/dev (not installed via Velopack), skipping update check.");
+                return UpdateCheckResult.NotInstalled;
             }
             catch (Exception ex)
             {
                 _lastCheckFailed = true;
                 Logger.Log("AppUpdater failed: " + ex);
-            }
-            finally
-            {
-                Gate.Release();
-            }
-        }
-
-        public static async Task<UpdateCheckResult> CheckForUpdatesInteractiveAsync(Action<string> statusCallback, string[] restartArgs = null)
-        {
-            await Gate.WaitAsync();
-            try
-            {
-                statusCallback?.Invoke("Checking for updates...");
-
-                var mgr = new UpdateManager(new GithubSource(GithubRepoUrl, null, false));
-
-                var newVersion = await mgr.CheckForUpdatesAsync();
-                if (newVersion == null)
-                {
-                    Logger.Log("AppUpdater (manual): no update available.");
-                    return UpdateCheckResult.UpToDate;
-                }
-
-                Logger.Log($"AppUpdater (manual): update found -> {newVersion.TargetFullRelease.Version}");
-                statusCallback?.Invoke($"Downloading update {newVersion.TargetFullRelease.Version}...");
-                await mgr.DownloadUpdatesAsync(newVersion);
-
-                statusCallback?.Invoke("Restarting to apply update...");
-                ApplyAfterNormalExit(mgr, newVersion, restartArgs);
-                return UpdateCheckResult.Updating;
-            }
-            catch (NotInstalledException)
-            {
-                Logger.Log("AppUpdater (manual): running from source/dev, cannot check for updates.");
-                return UpdateCheckResult.NotInstalled;
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("AppUpdater (manual) failed: " + ex);
                 return UpdateCheckResult.Error;
             }
             finally
@@ -153,10 +142,41 @@ namespace SteelSeriesDiscordStreamFix
         }
 
         /// <summary>
-        /// Installs the downloaded update and restarts the app. The app is closed through its normal exit path
-        /// (so Sonar devices are restored and Discord is un-muted first), then the new version is started.
-        /// If that fails the app simply keeps running, still fully working.
+        /// Downloads the version found by the last check and installs it. The app is closed through its normal
+        /// exit path (so Sonar devices are restored and Discord is un-muted first), the update is installed and
+        /// the new version starts. Returns false if anything failed; the app then keeps running as before.
         /// </summary>
+        public static async Task<bool> DownloadAndApplyAsync(Action<string> statusCallback, string[] restartArgs)
+        {
+            await Gate.WaitAsync();
+            try
+            {
+                var mgr = _manager;
+                var info = _info;
+                if (mgr == null || info == null)
+                {
+                    Logger.Log("AppUpdater: DownloadAndApply called without a pending update.");
+                    return false;
+                }
+
+                statusCallback?.Invoke("Downloading update " + AvailableVersion + "...");
+                await mgr.DownloadUpdatesAsync(info);
+
+                statusCallback?.Invoke("Restarting to apply update...");
+                ApplyAfterNormalExit(mgr, info, restartArgs);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("AppUpdater download/apply failed: " + ex);
+                return false;
+            }
+            finally
+            {
+                Gate.Release();
+            }
+        }
+
         private static void ApplyAfterNormalExit(UpdateManager mgr, UpdateInfo info, string[] restartArgs)
         {
             var exit = RequestExit;
@@ -176,7 +196,7 @@ namespace SteelSeriesDiscordStreamFix
     internal enum UpdateCheckResult
     {
         UpToDate,
-        Updating,
+        UpdateAvailable,
         NotInstalled,
         Error
     }

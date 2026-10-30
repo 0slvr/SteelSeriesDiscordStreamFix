@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace SteelSeriesDiscordStreamFix
@@ -25,6 +26,8 @@ namespace SteelSeriesDiscordStreamFix
         private ModernButton btnCancel;
         private ModernButton btnCheckUpdate;
         private Label labelUpdateStatus;
+        private LinkLabel linkSkipUpdate;
+        private string _shownUpdateVersion;
         private LinkLabel linkUninstall;
         private LinkLabel linkExit;
         private Label labelStatus;
@@ -282,16 +285,35 @@ namespace SteelSeriesDiscordStreamFix
             labelUpdateStatus = new Label
             {
                 AutoSize = false,
-                Location = new Point(188, 14),
-                Size = new Size(212, 36),
+                Location = new Point(188, 8),
+                Size = new Size(212, 26),
                 Text = "",
                 ForeColor = ColorTextSecondary,
                 Font = new Font("Segoe UI", 8.5F),
                 BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.MiddleLeft
             };
+            linkSkipUpdate = new LinkLabel
+            {
+                AutoSize = true,
+                Location = new Point(188, 38),
+                Text = "Skip this version",
+                LinkColor = ColorTextSecondary,
+                ActiveLinkColor = ColorTextPrimary,
+                VisitedLinkColor = ColorTextSecondary,
+                LinkBehavior = LinkBehavior.HoverUnderline,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8.5F),
+                Visible = false
+            };
+            linkSkipUpdate.LinkClicked += (s, e) =>
+            {
+                AppUpdater.SkipAvailable();
+                RefreshUpdateUi();
+            };
             panelUpdate.Controls.Add(btnCheckUpdate);
             panelUpdate.Controls.Add(labelUpdateStatus);
+            panelUpdate.Controls.Add(linkSkipUpdate);
 
             var dividerBottom = new Panel
             {
@@ -403,10 +425,39 @@ namespace SteelSeriesDiscordStreamFix
             else
                 labelStatus.ForeColor = ColorDanger;
 
-            if (AppUpdater.PendingVersion != null && btnCheckUpdate.Enabled && string.IsNullOrEmpty(labelUpdateStatus.Text))
+            // An update found by the background check shows up here without the user pressing anything.
+            if (btnCheckUpdate.Enabled && AppUpdater.AvailableVersion != _shownUpdateVersion)
             {
-                labelUpdateStatus.Text = $"Version {AppUpdater.PendingVersion} is ready - it installs when you close the app.";
+                RefreshUpdateUi();
             }
+        }
+
+        /// <summary>Shows "Update to X" (+ Skip) while a newer version is available, otherwise the normal check button.</summary>
+        private void RefreshUpdateUi()
+        {
+            string v = AppUpdater.AvailableVersion;
+            _shownUpdateVersion = v;
+
+            if (v == null)
+            {
+                btnCheckUpdate.Text = "Check for Updates";
+                linkSkipUpdate.Visible = false;
+                return;
+            }
+
+            bool skipped = AppUpdater.IsSkipped(v);
+            btnCheckUpdate.Text = "Update to " + v;
+            labelUpdateStatus.ForeColor = ColorTextSecondary;
+            labelUpdateStatus.Text = skipped ? v + " available (skipped)." : "Version " + v + " is available.";
+            linkSkipUpdate.Visible = !skipped;
+        }
+
+        private void SetUpdateStatus(string text)
+        {
+            if (labelUpdateStatus.InvokeRequired)
+                labelUpdateStatus.Invoke(new Action(() => labelUpdateStatus.Text = text));
+            else
+                labelUpdateStatus.Text = text;
         }
 
         private void CloseOrHide()
@@ -441,19 +492,27 @@ namespace SteelSeriesDiscordStreamFix
         private async void BtnCheckUpdate_Click(object sender, EventArgs e)
         {
             btnCheckUpdate.Enabled = false;
+            linkSkipUpdate.Visible = false;
             labelUpdateStatus.ForeColor = ColorTextSecondary;
+
+            // A newer version is already known: this click means "install it".
+            if (AppUpdater.AvailableVersion != null)
+            {
+                bool ok = await AppUpdater.DownloadAndApplyAsync(SetUpdateStatus, _updateRestartArgs);
+                if (ok) return; // the app is closing and restarts as the new version
+
+                labelUpdateStatus.ForeColor = ColorDanger;
+                labelUpdateStatus.Text = "Update failed — see log file.";
+                btnCheckUpdate.Enabled = true;
+                return;
+            }
+
             labelUpdateStatus.Text = "Checking for updates...";
 
             UpdateCheckResult result;
             try
             {
-                result = await AppUpdater.CheckForUpdatesInteractiveAsync(status =>
-                {
-                    if (labelUpdateStatus.InvokeRequired)
-                        labelUpdateStatus.Invoke(new Action(() => labelUpdateStatus.Text = status));
-                    else
-                        labelUpdateStatus.Text = status;
-                }, _updateRestartArgs);
+                result = await AppUpdater.CheckForUpdateAsync(false, SetUpdateStatus);
             }
             catch (Exception ex)
             {
@@ -466,6 +525,9 @@ namespace SteelSeriesDiscordStreamFix
                 case UpdateCheckResult.UpToDate:
                     labelUpdateStatus.Text = "You're up to date.";
                     break;
+                case UpdateCheckResult.UpdateAvailable:
+                    RefreshUpdateUi();
+                    break;
                 case UpdateCheckResult.NotInstalled:
                     labelUpdateStatus.ForeColor = ColorDanger;
                     labelUpdateStatus.Text = "Not available in dev builds.";
@@ -473,8 +535,6 @@ namespace SteelSeriesDiscordStreamFix
                 case UpdateCheckResult.Error:
                     labelUpdateStatus.ForeColor = ColorDanger;
                     labelUpdateStatus.Text = "Check failed — see log file.";
-                    break;
-                case UpdateCheckResult.Updating:
                     break;
             }
 
@@ -516,4 +576,4 @@ namespace SteelSeriesDiscordStreamFix
             Hide();
         }
     }
-}
+}

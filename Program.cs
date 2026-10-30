@@ -10,6 +10,10 @@ namespace SteelSeriesDiscordStreamFix
     {
         private const string ShowSettingsEventName = "SteelSeriesDiscordStreamFix_ShowSettingsRequest_Event";
 
+        // The installer/launcher sets this to ask a running copy to quit cleanly (un-mute Discord, restore
+        // the Sonar devices we hid) before it replaces the files with a newer version.
+        private const string ExitRequestEventName = "SteelSeriesDiscordStreamFix_ExitRequest_Event";
+
         private static DateTime _lastErrorDialogUtc = DateTime.MinValue;
 
         /// <summary>
@@ -109,8 +113,9 @@ namespace SteelSeriesDiscordStreamFix
                 try
                 {
                     using (var showSettingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSettingsEventName))
+                    using (var exitRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ExitRequestEventName))
                     {
-                        Application.Run(new MicMuterContext(showSettingsEvent, isAutoStart));
+                        Application.Run(new MicMuterContext(showSettingsEvent, exitRequestEvent, isAutoStart));
                     }
                 }
                 catch (Exception ex)
@@ -198,4 +203,4 @@ namespace SteelSeriesDiscordStreamFix
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetProcessDPIAware();
     }
-}
+}
