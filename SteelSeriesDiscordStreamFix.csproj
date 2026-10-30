@@ -116,9 +116,7 @@
     </Compile>
     <Compile Include="MicMuterContext.cs" />
     <Compile Include="Logger.cs" />
-    <Compile Include="ModernControls.cs">
-      <SubType>Component</SubType>
-    </Compile>
+    <Compile Include="ModernControls.cs" />
     <Compile Include="MuteWatcherService.cs" />
     <Compile Include="NativeAudioPolicy.cs" />
     <Compile Include="Program.cs" />

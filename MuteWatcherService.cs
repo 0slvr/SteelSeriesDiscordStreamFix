@@ -216,15 +216,22 @@ namespace SteelSeriesDiscordStreamFix
         {
             if (_disposed) return;
 
-            try
+            // This is a WASAPI notification callback: do not call back into the audio engine from inside it
+            // (reading the PID, muting, registering handlers). Hand the work to the thread pool, like the other
+            // callbacks do.
+            Task.Run(() =>
             {
-                var session = new AudioSessionControl(newSession);
-                if (!TrackIfDiscord(session)) { try { session.Dispose(); } catch { } }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("OnSessionCreated failed: " + ex.Message);
-            }
+                try
+                {
+                    if (_disposed) return;
+                    var session = new AudioSessionControl(newSession);
+                    if (!TrackIfDiscord(session)) { try { session.Dispose(); } catch { } }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("OnSessionCreated failed: " + ex.Message);
+                }
+            });
         }
 
         private bool TrackIfDiscord(AudioSessionControl session)
@@ -618,13 +625,23 @@ namespace SteelSeriesDiscordStreamFix
                 if (_owner._disposed || isMuted) return;
 
                 bool inWindow = DateTime.UtcNow - _trackedAtUtc <= RemuteWindow;
-                if (!inWindow || _remuteCount >= MaxRemutes)
+                if (!inWindow)
                 {
                     // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it,
                     // and remember it so a later rebind does not re-mute this session.
                     _owner.RememberUserUnmute(Key);
                     if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
                         Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted after the protection window — leaving it un-muted.");
+                    return;
+                }
+
+                if (_remuteCount >= MaxRemutes)
+                {
+                    // We stop fighting, but this is NOT proof that the user did it: Windows/Discord may be
+                    // restoring the old state. So it is deliberately not remembered as a user choice, and a
+                    // later rebind will try to mute this session again.
+                    if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
+                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted again after {MaxRemutes} re-mutes — giving up for now.");
                     return;
                 }
 

@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Velopack.Locators;
 
@@ -24,6 +25,11 @@ namespace SteelSeriesDiscordStreamFix
         private readonly System.Collections.Generic.Queue<DateTime> _recentApplies = new System.Collections.Generic.Queue<DateTime>();
         private const int MaxAppliesPerMinute = 5;
         private bool _hideFailureNotified;
+
+        // Balloons are rate-limited. A message that arrives too soon is queued (not dropped) and shown later.
+        private static readonly TimeSpan BalloonMinGap = TimeSpan.FromSeconds(60);
+        private readonly System.Collections.Generic.Queue<string> _pendingBalloons = new System.Collections.Generic.Queue<string>();
+        private System.Windows.Forms.Timer _pendingBalloonTimer;
 
         private string[] RestartArgs => _isAutoStart ? new[] { "--autostart" } : Array.Empty<string>();
 
@@ -53,7 +59,14 @@ namespace SteelSeriesDiscordStreamFix
             AppUpdater.RequestExit = () => _uiContext.Post(_ => ExitApp(), null);
             _ = AppUpdater.RunPeriodicChecksAsync(() => _exiting, RestartArgs, isAutoStart);
 
-            ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
+            // Enumerating every audio endpoint can be slow right after login (audio service still starting),
+            // so do it off the UI thread instead of delaying the window / the whole app.
+            bool disableAtStart = AppSettings.SavedDisableSteelSeries;
+            Task.Run(() =>
+            {
+                try { ApplySteelSeriesSetting(disableAtStart); }
+                catch (Exception ex) { Logger.Log("Startup ApplySteelSeriesSetting failed: " + ex); }
+            });
 
             StartShowSettingsListener();
 
@@ -99,7 +112,15 @@ namespace SteelSeriesDiscordStreamFix
         private void ShowBalloon(string message)
         {
             if (_exiting) return;
-            if (DateTime.UtcNow - _lastBalloonUtc < TimeSpan.FromSeconds(60)) return;
+
+            TimeSpan sinceLast = DateTime.UtcNow - _lastBalloonUtc;
+            if (sinceLast < BalloonMinGap)
+            {
+                // Too soon after the previous balloon: keep it for later instead of losing it.
+                if (!_pendingBalloons.Contains(message)) _pendingBalloons.Enqueue(message);
+                ArmPendingBalloonTimer(BalloonMinGap - sinceLast);
+                return;
+            }
             _lastBalloonUtc = DateTime.UtcNow;
 
             try
@@ -131,6 +152,28 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Logger.Log("ShowBalloon failed: " + ex);
             }
+        }
+
+        private void ArmPendingBalloonTimer(TimeSpan delay)
+        {
+            if (_pendingBalloonTimer != null) return; // already waiting
+
+            _pendingBalloonTimer = new System.Windows.Forms.Timer
+            {
+                Interval = Math.Max(250, (int)delay.TotalMilliseconds + 200)
+            };
+            _pendingBalloonTimer.Tick += (s, e) =>
+            {
+                _pendingBalloonTimer.Stop();
+                _pendingBalloonTimer.Dispose();
+                _pendingBalloonTimer = null;
+
+                if (_exiting || _pendingBalloons.Count == 0) return;
+                ShowBalloon(_pendingBalloons.Dequeue());
+                // More waiting? ShowBalloon just reset the gap, so this re-arms for the next one.
+                if (_pendingBalloons.Count > 0) ArmPendingBalloonTimer(BalloonMinGap);
+            };
+            _pendingBalloonTimer.Start();
         }
 
         private void HideBalloon()
@@ -291,6 +334,9 @@ namespace SteelSeriesDiscordStreamFix
             // Serialized: the UI thread and the topology timer thread must never run this at the same time.
             lock (_applyLock)
             {
+                // The app is closing (Cleanup already restored the devices): do not hide them again.
+                if (_exiting) return;
+
                 // Option off: only bring devices back if WE hid them. Never force-show devices the user
                 // hid some other way.
                 if (!disable && !AppSettings.WeHidDevices) return;
@@ -348,15 +394,26 @@ namespace SteelSeriesDiscordStreamFix
             try { _watcher.Dispose(); } catch (Exception ex) { Logger.Log("Cleanup: watcher dispose failed: " + ex.Message); }
 
             // Restore only what we hid. (They are hidden again automatically the next time the app starts.)
-            if (AppSettings.WeHidDevices)
+            // Wait briefly for a hide that may still be running in the background, so it cannot finish AFTER
+            // this restore and leave the devices hidden.
+            bool gotApplyLock = Monitor.TryEnter(_applyLock, 3000);
+            try
             {
-                try
+                if (AppSettings.WeHidDevices)
                 {
-                    if (SteelSeriesToggle.SetChatAndGamingVisible(true))
-                        AppSettings.WeHidDevices = false;
+                    try
+                    {
+                        if (SteelSeriesToggle.SetChatAndGamingVisible(true))
+                            AppSettings.WeHidDevices = false;
+                    }
+                    catch (Exception ex) { Logger.Log("Cleanup: restoring devices failed: " + ex.Message); }
                 }
-                catch (Exception ex) { Logger.Log("Cleanup: restoring devices failed: " + ex.Message); }
             }
+            finally
+            {
+                if (gotApplyLock) Monitor.Exit(_applyLock);
+            }
+            try { _pendingBalloons.Clear(); _pendingBalloonTimer?.Stop(); _pendingBalloonTimer?.Dispose(); } catch { }
             try { HideBalloon(); } catch { }
         }
     }

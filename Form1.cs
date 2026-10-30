@@ -417,7 +417,13 @@ namespace SteelSeriesDiscordStreamFix
             }
             else
             {
-                _exitApp();
+                // First run, nothing saved yet: closing quits the app, so the user must know it will NOT protect Discord.
+                var answer = MessageBox.Show(this,
+                    "You haven't pressed Save yet, so Discord is not being protected.\n\n" +
+                    "Close anyway? The app will quit. Run it again and press Save to turn protection on.",
+                    "SteelSeries Discord Stream Fix",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                if (answer == DialogResult.Yes) _exitApp();
             }
         }
 
