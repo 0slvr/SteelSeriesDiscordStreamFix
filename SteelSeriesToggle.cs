@@ -6,15 +6,26 @@ namespace SteelSeriesDiscordStreamFix
 {
     internal static class SteelSeriesToggle
     {
-        private const string ChatDeviceNameFragment = "SteelSeries Sonar - Chat";
-        private const string GamingDeviceNameFragment = "SteelSeries Sonar - Gaming";
+        private const string ChatDeviceNameFragment = "Sonar - Chat";
+        private const string GamingDeviceNameFragment = "Sonar - Gaming";
 
         /// <summary>Returns false if any matching device could not be changed.</summary>
         public static bool SetChatAndGamingVisible(bool visible)
         {
             bool a = SetEndpointVisible(ChatDeviceNameFragment, visible);
             bool b = SetEndpointVisible(GamingDeviceNameFragment, visible);
-            return a && b;
+            if (!(a && b)) return false;
+
+            // The undocumented API can "succeed" (HRESULT 0) and still do nothing on a Windows build whose
+            // interface layout changed. Verify the real device state instead of trusting the return code.
+            for (int i = 0; i < 5; i++)
+            {
+                System.Threading.Thread.Sleep(300);
+                if (!NeedsChange(visible)) return true;
+            }
+            Logger.Log("SetChatAndGamingVisible: call reported success but devices did not change state "
+                       + "(Windows " + Environment.OSVersion.Version + "). The undocumented API probably changed.");
+            return false;
         }
 
         /// <summary>

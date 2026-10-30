@@ -22,7 +22,17 @@ namespace SteelSeriesDiscordStreamFix
         // Exact process names (without ".exe"): stable, PTB, Canary, dev builds and the Vesktop client.
         private static readonly HashSet<string> DiscordProcessNames =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop" };
+            { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop",
+              "Equibop", "Legcord", "ArmCord", "WebCord", "Vencord", "Dorion" };
+
+        // Any process whose name starts with "Discord" (new Discord channels/renames) counts too.
+        private static bool IsDiscordName(string name, HashSet<string> extra)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            return DiscordProcessNames.Contains(name)
+                || extra.Contains(name)
+                || name.StartsWith("Discord", StringComparison.OrdinalIgnoreCase);
+        }
 
         // After a Discord session is first muted we defend that mute (Windows/Discord may restore the old
         // volume state right after the session opens). Once this window has passed, or after this many
@@ -277,7 +287,7 @@ namespace SteelSeriesDiscordStreamFix
                 return false;
             }
 
-            if (!DiscordProcessNames.Contains(processName) && !_extraProcessNames.Contains(processName)) return false;
+            if (!IsDiscordName(processName, _extraProcessNames)) return false;
 
             string key = GetSessionKey(session, pid);
 
@@ -358,7 +368,13 @@ namespace SteelSeriesDiscordStreamFix
             lock (_sessionsLock)
             {
                 _mutedByUsKeys.Remove(key);
-                if (_userUnmutedKeys.Count >= MaxRememberedKeys) _userUnmutedKeys.Clear();
+                if (_userUnmutedKeys.Count >= MaxRememberedKeys)
+                {
+                    // Drop only a few old entries instead of forgetting every choice the user made.
+                    var old = new List<string>();
+                    foreach (string k in _userUnmutedKeys) { old.Add(k); if (old.Count >= 20) break; }
+                    foreach (string k in old) _userUnmutedKeys.Remove(k);
+                }
                 _userUnmutedKeys.Add(key);
             }
         }

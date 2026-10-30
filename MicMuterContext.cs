@@ -444,6 +444,15 @@ namespace SteelSeriesDiscordStreamFix
                 // devices some other way, "restore on exit" must NOT bring them back behind the user's back.
                 bool somethingToHide = disable && SteelSeriesToggle.NeedsChange(false);
 
+                // Write ownership FIRST: if the PC loses power or the process is killed right after hiding, the
+                // next start still knows it must bring the devices back.
+                bool claimedNow = false;
+                if (disable && somethingToHide && !AppSettings.WeHidDevices)
+                {
+                    AppSettings.WeHidDevices = true;
+                    claimedNow = true;
+                }
+
                 bool ok = false;
                 try { ok = SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
                 catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
@@ -456,6 +465,8 @@ namespace SteelSeriesDiscordStreamFix
                 }
                 else if (!_hideFailureNotified)
                 {
+                    // Nothing was really hidden: do not keep a claim we cannot honour.
+                    if (claimedNow && SteelSeriesToggle.NeedsChange(false)) AppSettings.WeHidDevices = false;
                     _hideFailureNotified = true;
                     OnWatcherProblem("Could not " + (disable ? "hide" : "show") +
                         " the SteelSeries Chat/Gaming devices. A Windows update may have changed the undocumented API this relies on. See the log file.");
