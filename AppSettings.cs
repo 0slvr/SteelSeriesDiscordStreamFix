@@ -161,9 +161,15 @@ namespace SteelSeriesDiscordStreamFix
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
                 {
-                    if (key == null || key.GetValue(ValueNameQuietStartOnce) == null) return false;
+                    if (key == null) return false;
+                    object raw = key.GetValue(ValueNameQuietStartOnce);
+                    if (raw == null) return false;
                     key.DeleteValue(ValueNameQuietStartOnce, false);
-                    return true;
+
+                    // Only honoured right after the install: a stale flag must never hide the window the user asked for.
+                    long ticks;
+                    if (!long.TryParse(raw as string, out ticks)) return false;
+                    return DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < TimeSpan.FromMinutes(2);
                 }
             }
             catch { return false; }

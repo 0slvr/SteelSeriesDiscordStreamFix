@@ -87,6 +87,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     // version is installed AND running, the job is done.
                     Log.Write("Setup started, pid " + proc.Id);
                     var deadline = DateTime.UtcNow.AddMinutes(2);
+                    DateTime? runningSince = null;
                     var nextBeat = DateTime.UtcNow.AddSeconds(5);
                     while (true)
                     {
@@ -106,8 +107,13 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                             break;
                         }
 
+                        // Velopack briefly runs the app for its install hook, so "running" only counts when it stays up.
+                        if (InstalledApp.IsRunning()) { if (runningSince == null) runningSince = DateTime.UtcNow; }
+                        else runningSince = null;
+
                         InstalledApp now = InstalledApp.Detect();
-                        if (now != null && now.Version >= target && InstalledApp.IsRunning())
+                        if (now != null && now.Version >= target && runningSince != null &&
+                            DateTime.UtcNow - runningSince.Value > TimeSpan.FromSeconds(3))
                         {
                             Log.Write("App is installed and running while Setup is still open; continuing.");
                             break;
@@ -126,9 +132,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     return "The installer finished, but the app was not found in " + InstalledApp.RootDir + ".";
 
                 // 4. Setup normally starts the app itself; if it did not, start it ourselves.
-                var until = DateTime.UtcNow.AddSeconds(10);
-                while (!InstalledApp.IsRunning() && DateTime.UtcNow < until) Thread.Sleep(300);
-                if (!InstalledApp.IsRunning())
+                if (!WaitForStableRunning(10000))
                 {
                     SetQuietFlag(false);
                     InstalledApp.Launch("--autostart");
@@ -149,6 +153,23 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             }
         }
 
+        private static bool WaitForStableRunning(int timeoutMs)
+        {
+            var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            DateTime? since = null;
+            while (DateTime.UtcNow < until)
+            {
+                if (InstalledApp.IsRunning())
+                {
+                    if (since == null) since = DateTime.UtcNow;
+                    else if (DateTime.UtcNow - since.Value > TimeSpan.FromSeconds(2)) return true;
+                }
+                else since = null;
+                Thread.Sleep(250);
+            }
+            return false;
+        }
+
         private static void SetQuietFlag(bool on)
         {
             try
@@ -156,7 +177,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 if (on)
                 {
                     using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
-                        key.SetValue("QuietStartOnce", 1, RegistryValueKind.DWord);
+                        key.SetValue("QuietStartOnce", DateTime.UtcNow.Ticks.ToString(), RegistryValueKind.String);
                 }
                 else
                 {
