@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Threading;
 using System.Windows.Forms;
@@ -22,9 +24,22 @@ namespace SteelSeriesDiscordStreamFix
         /// </summary>
         internal static Action EmergencyCleanup;
 
+        /// <summary>
+        /// 0 for a normal start. 1..MaxCrashRestarts when this process was started by the crash handler of the
+        /// previous process (argument --crash-restart=N). The app then tells the user it restarted itself.
+        /// </summary>
+        internal static int CrashRestartCount { get; private set; }
+
+        // A crash loop must never spin forever: after this many quick crashes in a row the app stays down.
+        private const int MaxCrashRestarts = 3;
+        // A process that ran at least this long before crashing is a new problem, not part of a crash loop.
+        private static readonly TimeSpan StableUptime = TimeSpan.FromMinutes(10);
+
         [STAThread]
         static void Main()
         {
+            ParseCrashRestartArg();
+
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 Logger.Log("FATAL UnhandledException: " +
@@ -36,6 +51,9 @@ namespace SteelSeriesDiscordStreamFix
                     else if (AppSettings.WeHidDevices) SteelSeriesToggle.SetChatAndGamingVisible(true);
                 }
                 catch { }
+
+                // The app has no tray icon, so a crash would silently leave Discord unprotected: start a fresh copy.
+                if (e.IsTerminating) TryRestartAfterCrash();
             };
             Application.ThreadException += (s, e) =>
             {
@@ -92,9 +110,11 @@ namespace SteelSeriesDiscordStreamFix
                     }
 
                     Logger.Log("Could not signal a running instance right away — retrying mutex acquisition briefly in case the previous instance is still exiting.");
+                    // After a crash the dying process may need a little longer (Windows error reporting) to let go.
+                    TimeSpan retryWait = CrashRestartCount > 0 ? TimeSpan.FromSeconds(15) : TimeSpan.FromSeconds(3);
                     try
                     {
-                        ownsMutex = singleInstance.WaitOne(TimeSpan.FromSeconds(3));
+                        ownsMutex = singleInstance.WaitOne(retryWait);
                     }
                     catch (AbandonedMutexException)
                     {
@@ -166,6 +186,66 @@ namespace SteelSeriesDiscordStreamFix
             catch
             {
                 // A hook must never throw.
+            }
+        }
+
+        private static void ParseCrashRestartArg()
+        {
+            try
+            {
+                const string prefix = "--crash-restart=";
+                foreach (string a in Environment.GetCommandLineArgs())
+                {
+                    int n;
+                    if (a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                        int.TryParse(a.Substring(prefix.Length), out n) && n > 0)
+                    {
+                        CrashRestartCount = Math.Min(n, MaxCrashRestarts);
+                        return;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Called from the crash handler after the cleanup ran: starts a new copy in the background, at most
+        /// MaxCrashRestarts times in a row, and only if the user had confirmed their settings.
+        /// </summary>
+        private static void TryRestartAfterCrash()
+        {
+            try
+            {
+                if (!AppSettings.HasConfirmedSettings) return; // never set up (or already uninstalled): nothing to protect
+
+                TimeSpan uptime;
+                using (Process me = Process.GetCurrentProcess())
+                    uptime = DateTime.Now - me.StartTime;
+
+                int next = uptime >= StableUptime ? 1 : CrashRestartCount + 1;
+                if (next > MaxCrashRestarts)
+                {
+                    Logger.Log("Crash handler: " + MaxCrashRestarts + " quick crashes in a row — NOT restarting again.");
+                    return;
+                }
+
+                string exe = Application.ExecutablePath;
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = "--autostart --crash-restart=" + next,
+                    WorkingDirectory = Path.GetDirectoryName(exe),
+                    UseShellExecute = false
+                });
+                Logger.Log("Crash handler: started a new copy (attempt " + next + " of " + MaxCrashRestarts + ").");
+
+                // Leave right away, otherwise the Windows "has stopped working" dialog can keep this process (and the
+                // single-instance mutex) alive and the new copy would have to wait for it.
+                Environment.Exit(1);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("Crash handler: restart failed: " + ex.Message);
             }
         }
 

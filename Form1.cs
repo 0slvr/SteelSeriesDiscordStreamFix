@@ -206,10 +206,26 @@ namespace SteelSeriesDiscordStreamFix
 
         private void SetUpdateStatus(string text)
         {
-            if (labelUpdateStatus.InvokeRequired)
-                labelUpdateStatus.Invoke(new Action(() => labelUpdateStatus.Text = text));
-            else
-                labelUpdateStatus.Text = text;
+            try
+            {
+                if (IsDisposed || labelUpdateStatus.IsDisposed) return;
+
+                if (labelUpdateStatus.InvokeRequired)
+                {
+                    // BeginInvoke: never block the calling (worker) thread on a window that may be closing.
+                    if (!labelUpdateStatus.IsHandleCreated) return;
+                    labelUpdateStatus.BeginInvoke(new Action(() =>
+                    {
+                        if (!labelUpdateStatus.IsDisposed) labelUpdateStatus.Text = text;
+                    }));
+                }
+                else
+                {
+                    labelUpdateStatus.Text = text;
+                }
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
         private void CloseOrHide()
@@ -320,19 +336,34 @@ namespace SteelSeriesDiscordStreamFix
                 });
 
                 _ensureWatcherStarted?.Invoke();
-
-                ThemedMessageBox.Show(this,
-                    "Settings saved. Discord auto-mute keeps running in the background.",
-                    "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 Logger.Log("BtnOk_Click failed: " + ex);
                 ThemedMessageBox.Show(this, "Settings did not save successfully. See the log file for details.",
                     "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Hide();
+                return;
             }
 
-            Hide();
+            // No extra "OK" dialog: the Save button itself says "Saved" for a moment, then the window hides.
+            string originalText = btnOk.Text;
+            btnOk.Text = "Saved";
+            btnOk.Enabled = false;
+            btnCancel.Enabled = false;
+
+            var hideTimer = new System.Windows.Forms.Timer { Interval = 1100 };
+            hideTimer.Tick += (s, ev) =>
+            {
+                hideTimer.Stop();
+                hideTimer.Dispose();
+                if (IsDisposed) return;
+                btnOk.Text = originalText;
+                btnOk.Enabled = true;
+                btnCancel.Enabled = true;
+                Hide();
+            };
+            hideTimer.Start();
         }
     }
 }

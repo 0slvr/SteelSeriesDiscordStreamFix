@@ -100,10 +100,25 @@ namespace SteelSeriesDiscordStreamFix
 
         private void SetMessage(string text)
         {
-            if (_message.InvokeRequired)
-                _message.BeginInvoke(new Action(() => _message.Text = text));
-            else
-                _message.Text = text;
+            try
+            {
+                if (IsDisposed || _message.IsDisposed) return;
+
+                if (_message.InvokeRequired)
+                {
+                    if (!_message.IsHandleCreated) return;
+                    _message.BeginInvoke(new Action(() =>
+                    {
+                        if (!_message.IsDisposed) _message.Text = text;
+                    }));
+                }
+                else
+                {
+                    _message.Text = text;
+                }
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
     }
 }

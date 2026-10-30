@@ -24,6 +24,7 @@ namespace SteelSeriesDiscordStreamFix
 
         private volatile bool _exiting;
         private int _cleanedUp;
+        private int _exitStarted;
         private readonly object _applyLock = new object();
         private readonly System.Collections.Generic.Queue<DateTime> _recentApplies = new System.Collections.Generic.Queue<DateTime>();
         private const int MaxAppliesPerMinute = 5;
@@ -81,6 +82,10 @@ namespace SteelSeriesDiscordStreamFix
 
             bool showSettingsOnLaunch = true;
 
+            // Crash detection: RunState is still "running" if the previous run never reached a normal exit.
+            bool previousRunEndedBadly = string.Equals(AppSettings.RunState, "running", StringComparison.Ordinal);
+            bool wasFirstRun = AppSettings.IsFirstRun;
+
             if (AppSettings.IsFirstRun)
             {
                 Logger.Log("First run detected — showing settings window; mute watcher will start once OK/Save is pressed.");
@@ -94,6 +99,25 @@ namespace SteelSeriesDiscordStreamFix
                 {
                     showSettingsOnLaunch = false;
                     Logger.Log("Launched via Windows startup — running in the background, not opening Settings.");
+                }
+            }
+
+            AppSettings.RunState = "running";
+
+            // The app has no tray icon, so tell the user when protection had silently stopped.
+            if (!wasFirstRun && AppSettings.HasConfirmedSettings)
+            {
+                if (Program.CrashRestartCount > 0)
+                {
+                    Logger.Log("MicMuterContext: started by the crash handler (attempt " + Program.CrashRestartCount + ").");
+                    OnWatcherProblem("The app hit an unexpected error and restarted itself. Discord protection is active again. " +
+                                     "If this keeps happening, open the log file from the Settings window.");
+                }
+                else if (previousRunEndedBadly)
+                {
+                    Logger.Log("MicMuterContext: the previous run did not exit normally (crash, forced close or power loss).");
+                    OnWatcherProblem("The app was not closed normally last time (crash, forced close or power loss). " +
+                                     "Discord protection is active again.");
                 }
             }
 
@@ -277,6 +301,7 @@ namespace SteelSeriesDiscordStreamFix
             Logger.Log("MicMuterContext: Windows session ended (" + e.Reason + ") — restoring devices and un-muting Discord.");
             // Windows only gives a short time at shutdown: do not wait long for a stuck audio call.
             Cleanup(1000);
+            AppSettings.RunState = "clean";
         }
 
         private void OnDeviceTopologyChanged()
@@ -492,9 +517,31 @@ namespace SteelSeriesDiscordStreamFix
             _settingsForm.Activate();
         }
 
-        private void ExitApp()
+        /// <summary>
+        /// Normal exit. The device restore talks to the audio engine (it can take a second or more), so it runs on a
+        /// worker thread with a time limit: the UI never freezes and a stuck driver can never block the exit.
+        /// </summary>
+        private async void ExitApp()
         {
-            Cleanup();
+            if (Interlocked.Exchange(ref _exitStarted, 1) == 1) return;
+
+            _exiting = true;
+            try { _settingsForm?.Hide(); } catch { }
+            CleanupUi(); // NotifyIcons and timers belong to the UI thread: do them here, before the worker starts
+
+            try
+            {
+                Task work = Task.Run(() => Cleanup());
+                Task finished = await Task.WhenAny(work, Task.Delay(6000));
+                if (finished != work)
+                    Logger.Log("ExitApp: cleanup took longer than 6 s — exiting anyway (hidden devices are restored on the next start).");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("ExitApp: cleanup failed: " + ex.Message);
+            }
+
+            AppSettings.RunState = "clean";
             Application.Exit();
         }
 
@@ -533,9 +580,23 @@ namespace SteelSeriesDiscordStreamFix
             {
                 if (gotApplyLock) Monitor.Exit(_applyLock);
             }
-            try { _pendingBalloons.Clear(); _pendingBalloonTimer?.Stop(); _pendingBalloonTimer?.Dispose(); } catch { }
-            try { HideBalloon(); } catch { }
+            CleanupUi();
             try { AppUpdater.UpdateFound -= OnUpdateFound; } catch { }
+        }
+
+        // Safe to call more than once.
+        private void CleanupUi()
+        {
+            try { _pendingBalloons.Clear(); } catch { }
+            try
+            {
+                var timer = _pendingBalloonTimer;
+                _pendingBalloonTimer = null;
+                timer?.Stop();
+                timer?.Dispose();
+            }
+            catch { }
+            try { HideBalloon(); } catch { }
             try { HideUpdateBalloon(); } catch { }
         }
     }

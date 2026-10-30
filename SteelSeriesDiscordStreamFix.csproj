@@ -10,16 +10,17 @@
     <AssemblyName>SteelSeriesDiscordStreamFix</AssemblyName>
     <ApplicationIcon>steelseries.ico</ApplicationIcon>
 
-    <!-- Same as before: AnyCPU, 32-bit preferred (the old project compiled with anycpu32bitpreferred). -->
+    <!-- AnyCPU: runs as 64-bit on a 64-bit Windows. Every dependency (NAudio, Velopack) is pure managed code,
+         so there is no reason to force a 32-bit process. -->
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Prefer32Bit>true</Prefer32Bit>
+    <Prefer32Bit>false</Prefer32Bit>
 
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
 
     <!-- publish.ps1 passes -p:Version=x.y.z, which also sets AssemblyVersion / FileVersion.
          The default below is only used for a plain build (Visual Studio, GitHub Actions). -->
-    <Version Condition="'$(Version)' == ''">1.0.44</Version>
+    <Version Condition="'$(Version)' == ''">1.0.45</Version>
     <Title>SteelSeriesDiscordStreamFix</Title>
     <Product>SteelSeriesDiscordStreamFix</Product>
     <Company>SLVR</Company>

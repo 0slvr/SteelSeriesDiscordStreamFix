@@ -149,6 +149,58 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
+        private const string ValueNameRunState = "RunState";
+
+        /// <summary>
+        /// "running" while the app is alive, "clean" after a normal exit / logoff / shutdown. If a start finds
+        /// "running", the previous run ended abnormally (crash, forced kill, power loss).
+        /// </summary>
+        public static string RunState
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                        return key?.GetValue(ValueNameRunState) as string;
+                }
+                catch { return null; }
+            }
+            set
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+                        key?.SetValue(ValueNameRunState, value ?? string.Empty, RegistryValueKind.String);
+                }
+                catch (Exception ex) { Logger.Log("RunState write failed: " + ex.Message); }
+            }
+        }
+
+        private static int ReadInt(string name, int defaultValue, int min, int max)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                {
+                    object v = key?.GetValue(name);
+                    if (v == null) return defaultValue;
+                    int n = Convert.ToInt32(v);
+                    return Math.Max(min, Math.Min(max, n));
+                }
+            }
+            catch { return defaultValue; }
+        }
+
+        /// <summary>
+        /// Advanced (no UI): how long after a Discord session opens an un-mute is treated as "Windows/Discord
+        /// restoring the old state" and re-muted. Registry DWORD "RemuteWindowSeconds", 5-120, default 15.
+        /// </summary>
+        public static int RemuteWindowSeconds => ReadInt("RemuteWindowSeconds", 15, 5, 120);
+
+        /// <summary>Advanced (no UI): max automatic re-mutes per session. Registry DWORD "MaxRemutes", 1-10, default 3.</summary>
+        public static int MaxRemutes => ReadInt("MaxRemutes", 3, 1, 10);
+
         private const string ValueNameExtraProcessNames = "ExtraProcessNames";
 
         /// <summary>

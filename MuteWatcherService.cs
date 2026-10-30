@@ -25,13 +25,12 @@ namespace SteelSeriesDiscordStreamFix
             { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop",
               "Equibop", "Legcord", "ArmCord", "WebCord", "Vencord", "Dorion" };
 
-        // Any process whose name starts with "Discord" (new Discord channels/renames) counts too.
+        // Explicit list only: a process that merely starts with "Discord" is NOT muted. A new Discord channel
+        // or fork can be added without a new release through the "ExtraProcessNames" registry value.
         private static bool IsDiscordName(string name, HashSet<string> extra)
         {
             if (string.IsNullOrEmpty(name)) return false;
-            return DiscordProcessNames.Contains(name)
-                || extra.Contains(name)
-                || name.StartsWith("Discord", StringComparison.OrdinalIgnoreCase);
+            return DiscordProcessNames.Contains(name) || extra.Contains(name);
         }
 
         // After a Discord session is first muted we defend that mute (Windows/Discord may restore the old
@@ -39,8 +38,11 @@ namespace SteelSeriesDiscordStreamFix
         // re-mutes, an un-mute is treated as a deliberate user action and is left alone. Without this limit
         // the app fights the user forever and Discord can never be un-muted (the mute state is shared with
         // Discord's real audio on many systems, so "re-mute instantly" silences ALL of Discord).
-        private static readonly TimeSpan RemuteWindow = TimeSpan.FromSeconds(15);
-        private const int MaxRemutes = 3;
+        // Both values can be tuned in the registry (RemuteWindowSeconds / MaxRemutes, see AppSettings) and are
+        // re-read every time the device is (re)bound.
+        private static volatile int _remuteWindowSeconds = 15;
+        private static volatile int _maxRemutes = 3;
+        private static TimeSpan RemuteWindow => TimeSpan.FromSeconds(_remuteWindowSeconds);
 
         private const int TickIntervalMs = 30 * 1000;
         private static readonly TimeSpan BoundCheckInterval = TimeSpan.FromMinutes(5);
@@ -146,6 +148,7 @@ namespace SteelSeriesDiscordStreamFix
 
                 UnbindCurrentDevice();
                 _extraProcessNames = LoadExtraProcessNames();
+                LoadRemuteSettings();
 
                 MMDevice found;
                 try
@@ -327,6 +330,18 @@ namespace SteelSeriesDiscordStreamFix
                 }
                 return false;
             }
+        }
+
+        private static void LoadRemuteSettings()
+        {
+            try
+            {
+                _remuteWindowSeconds = AppSettings.RemuteWindowSeconds;
+                _maxRemutes = AppSettings.MaxRemutes;
+                if (_remuteWindowSeconds != 15 || _maxRemutes != 3)
+                    Logger.Log($"MuteWatcherService: custom re-mute settings: window={_remuteWindowSeconds}s, max re-mutes={_maxRemutes}.");
+            }
+            catch (Exception ex) { Logger.Log("LoadRemuteSettings failed: " + ex.Message); }
         }
 
         private static HashSet<string> LoadExtraProcessNames()
@@ -708,17 +723,21 @@ namespace SteelSeriesDiscordStreamFix
                     // and remember it so a later rebind does not re-mute this session.
                     _owner.RememberUserUnmute(Key);
                     if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
-                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted after the protection window — leaving it un-muted.");
+                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted {(DateTime.UtcNow - _trackedAtUtc).TotalSeconds:0}s after its session opened " +
+                                   $"(protection window = {_remuteWindowSeconds}s) — treating it as a deliberate un-mute and leaving it un-muted. " +
+                                   "If Discord restores its state later than this on your PC, raise the registry DWORD RemuteWindowSeconds.");
                     return;
                 }
 
-                if (_remuteCount >= MaxRemutes)
+                if (_remuteCount >= _maxRemutes)
                 {
                     // We stop fighting, but this is NOT proof that the user did it: Windows/Discord may be
                     // restoring the old state. So it is deliberately not remembered as a user choice, and a
                     // later rebind will try to mute this session again.
                     if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
-                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted again after {MaxRemutes} re-mutes — giving up for now.");
+                        Logger.Log($"WARNING: Discord (pid={_pid}) was un-muted again after {_maxRemutes} automatic re-mutes — giving up on this session for now " +
+                                   "(Discord is NOT muted on the Sonar microphone device right now). A rebind (device change / Sonar restart) will try again. " +
+                                   "To allow more attempts, raise the registry DWORD MaxRemutes.");
                     return;
                 }
 

@@ -20,7 +20,7 @@ However, Discord can open an audio session on the **Sonar - Microphone** device 
 The app monitors audio sessions on the **SteelSeries Sonar - Microphone** device. When Discord opens a session there, it is muted immediately.
 
 ### 2. Supported clients 
-Discord (Stable), PTB, Canary, Development, and Vesktop.
+Discord (Stable), PTB, Canary, Development, Vesktop, Equibop, Legcord, ArmCord, WebCord and Dorion. Only these exact process names are muted; others can be added with `ExtraProcessNames` (see Troubleshooting).
 Discord running in a web browser is **not supported**, since it cannot be distinguished from other browser tabs.
 
 ### 3. Hide Sonar - Chat and Sonar - Gaming (optional)
@@ -63,6 +63,8 @@ Once installed, there's nothing to do. Join a Discord call or start streaming, a
 - **Something looks wrong:** open the log file from the settings window and attach it when reporting an issue. The log starts with the app version and Windows build, and your Windows user name is replaced by `%USERPROFILE%`, but read it once before posting.
 - **Sonar Chat / Gaming stay hidden after a crash, a forced kill or a manual delete of the app:** open *Sound settings > More sound settings > Playback*, right-click an empty area, tick *Show Disabled Devices*, then right-click **SteelSeries Sonar - Chat** / **Gaming** and choose *Enable*.
 - **Another Discord client (a fork) is not muted:** add a string value `ExtraProcessNames` to `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` with the process names separated by commas (e.g. `MyDiscordFork,AnotherClient`), then restart the app.
+- **The app crashed:** it restarts itself (at most 3 times in a row) and shows a notification. If it was closed abnormally (forced kill, power loss), the next start shows a notification too.
+- **Discord gets un-muted again by itself:** after Discord opens a session the app re-mutes it for 15 seconds, at most 3 times. If Discord restores its state later than that on your PC, set the DWORD values `RemuteWindowSeconds` (5-120) and/or `MaxRemutes` (1-10) in `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` and restart the app. The log says clearly when the app gives up on a session.
 - **No warning notifications while gaming:** Windows can hide notifications during Focus Assist / game mode. The current status is always visible in the Settings window.
 
 ## Disclaimer
