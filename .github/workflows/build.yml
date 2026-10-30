@@ -1,11 +1,12 @@
-   name: build
-   on: [push, pull_request]
-   jobs:
-     build:
-       runs-on: windows-latest
-       steps:
-         - uses: actions/checkout@v4
-         - uses: microsoft/setup-msbuild@v2
-         - uses: nuget/setup-nuget@v2
-         - run: nuget restore SteelSeriesDiscordStreamFix.csproj -PackagesDirectory packages
-         - run: msbuild SteelSeriesDiscordStreamFix.csproj /p:Configuration=Release
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build SteelSeriesDiscordStreamFix.csproj -c Release
+      - run: dotnet build Launcher/SteelSeriesDiscordStreamFix.Launcher.csproj -c Release
