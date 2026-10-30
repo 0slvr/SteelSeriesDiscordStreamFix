@@ -60,14 +60,16 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 InstalledApp.RequestExitAndWait(8000);
                 Log.Write("Running copy handled.");
 
-                // 3. Velopack's own Setup, silent. After "--" come the arguments for the app it starts:
-                //    --autostart = start in the background without opening the Settings window.
+                // 3. Velopack's own Setup, silent. It starts the app without arguments, so a one-time registry flag
+                //    tells the app to start quietly (no Settings window) this once.
+                SetQuietFlag(true);
                 Directory.CreateDirectory(Log.Dir);
                 string setupLog = Path.Combine(Log.Dir, "setup-log.txt");
                 var psi = new ProcessStartInfo
                 {
                     FileName = setupPath,
-                    Arguments = "--silent --log \"" + setupLog + "\" -- --autostart",
+                    // NOTE: do not pass app arguments after "--": Velopack's Setup panics on them (clap EXE_ARGS bug) and hangs.
+                    Arguments = "--silent --log \"" + setupLog + "\"",
                     WorkingDirectory = tempDir,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -126,13 +128,18 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 // 4. Setup normally starts the app itself; if it did not, start it ourselves.
                 var until = DateTime.UtcNow.AddSeconds(10);
                 while (!InstalledApp.IsRunning() && DateTime.UtcNow < until) Thread.Sleep(300);
-                if (!InstalledApp.IsRunning()) InstalledApp.Launch("--autostart");
+                if (!InstalledApp.IsRunning())
+                {
+                    SetQuietFlag(false);
+                    InstalledApp.Launch("--autostart");
+                }
 
                 return null;
             }
             catch (Exception ex)
             {
                 Log.Write("Install failed: " + ex);
+                SetQuietFlag(false);
                 if (freshInstall && InstalledApp.Detect() == null) RollbackSettings();
                 return "Installation failed: " + ex.Message;
             }
@@ -140,6 +147,24 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             {
                 try { Directory.Delete(tempDir, true); } catch { }
             }
+        }
+
+        private static void SetQuietFlag(bool on)
+        {
+            try
+            {
+                if (on)
+                {
+                    using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+                        key.SetValue("QuietStartOnce", 1, RegistryValueKind.DWord);
+                }
+                else
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
+                        key?.DeleteValue("QuietStartOnce", false);
+                }
+            }
+            catch (Exception ex) { Log.Write("SetQuietFlag failed: " + ex.Message); }
         }
 
         private static void WriteSettings(LauncherSettings s)

@@ -88,7 +88,8 @@ namespace SteelSeriesDiscordStreamFix
             {
                 EnsureWatcherStarted();
 
-                if (isAutoStart)
+                bool quietOnce = AppSettings.ConsumeQuietStartFlag(); // set by the installer after Save / update
+                if (isAutoStart || quietOnce)
                 {
                     showSettingsOnLaunch = false;
                     Logger.Log("Launched via Windows startup — running in the background, not opening Settings.");

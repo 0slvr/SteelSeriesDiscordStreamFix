@@ -149,6 +149,26 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
+        private const string ValueNameQuietStartOnce = "QuietStartOnce";
+
+        /// <summary>
+        /// The installer sets this so the very first start after an install/update runs quietly (no Settings window,
+        /// the user just made their choices there). Reading it clears it.
+        /// </summary>
+        public static bool ConsumeQuietStartFlag()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
+                {
+                    if (key == null || key.GetValue(ValueNameQuietStartOnce) == null) return false;
+                    key.DeleteValue(ValueNameQuietStartOnce, false);
+                    return true;
+                }
+            }
+            catch { return false; }
+        }
+
         private const string ValueNameSkippedUpdate = "SkippedUpdateVersion";
 
         /// <summary>Version the user chose "Skip this version" for. No notifications for it; a newer one notifies again.</summary>
