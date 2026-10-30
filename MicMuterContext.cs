@@ -46,7 +46,9 @@ namespace SteelSeriesDiscordStreamFix
             Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
             Application.ApplicationExit += (s, e) => Cleanup();
 
-            _ = AppUpdater.CheckAndStageAsync(RestartArgs, isAutoStart);
+            // Updates are applied by closing the app through ExitApp() so Cleanup() always runs first.
+            AppUpdater.RequestExit = () => _uiContext.Post(_ => ExitApp(), null);
+            _ = AppUpdater.RunPeriodicChecksAsync(() => _exiting, RestartArgs, isAutoStart);
 
             ApplySteelSeriesSetting(AppSettings.SavedDisableSteelSeries);
 

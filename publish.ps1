@@ -365,7 +365,8 @@ try {
                 if (Test-ReleaseTag $repoUrl "v$version") { Info "v$version already exists in the main repo, skipping." }
                 else {
                     Step "Creating Setup-only release in the main repo"
-                    $body = "**Download: $setupName** and run it. Updates install automatically.`n`n$notesText"
+                    $setupHash = (Get-FileHash -Path (Join-Path $releasesDir $setupName) -Algorithm SHA256).Hash
+                    $body = "**Download: $setupName** and run it. Updates install automatically.`n`n$notesText`n`nSHA256 ($setupName): ``$setupHash``"
                     Publish-SetupOnlyRelease $repoUrl $branch (Join-Path $releasesDir $setupName) $body
                 }
             }

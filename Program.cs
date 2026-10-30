@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net;
 using System.Threading;
 using System.Windows.Forms;
 using Velopack;
@@ -32,7 +33,12 @@ namespace SteelSeriesDiscordStreamFix
             };
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
-            VelopackApp.Build().Run();
+            // .NET Framework 4.7.2 can fall back to old protocols on older Windows builds; GitHub needs TLS 1.2+.
+            try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
+
+            VelopackApp.Build()
+                .OnBeforeUninstallFastCallback(v => UninstallCleanup())
+                .Run();
 
             TryEnableDpiAwareness();
 
@@ -103,6 +109,41 @@ namespace SteelSeriesDiscordStreamFix
                 {
                     try { singleInstance.ReleaseMutex(); } catch { }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Runs when Velopack uninstalls the app from ANY place (Windows Settings > Apps, Update.exe, ...),
+        /// before the files are removed. The in-app Uninstall button does the same cleanup, but without this
+        /// hook a normal Windows uninstall would leave the Sonar Chat/Gaming devices hidden and the
+        /// startup entry behind. Velopack exits right after this hook, so keep it quick and never throw.
+        /// </summary>
+        private static void UninstallCleanup()
+        {
+            try
+            {
+                Logger.Log("Velopack uninstall hook: restoring Sonar devices, removing startup entry and settings.");
+
+                // Read this BEFORE the settings key is deleted below.
+                if (AppSettings.WeHidDevices)
+                {
+                    try { SteelSeriesToggle.SetChatAndGamingVisible(true); }
+                    catch (Exception ex) { Logger.Log("Uninstall hook: restoring devices failed: " + ex.Message); }
+                }
+
+                try { AppSettings.StartWithWindows = false; }
+                catch (Exception ex) { Logger.Log("Uninstall hook: removing startup entry failed: " + ex.Message); }
+
+                try
+                {
+                    Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
+                        @"SOFTWARE\SteelSeriesDiscordStreamFix", throwOnMissingSubKey: false);
+                }
+                catch (Exception ex) { Logger.Log("Uninstall hook: registry cleanup failed: " + ex.Message); }
+            }
+            catch
+            {
+                // A hook must never throw.
             }
         }
 

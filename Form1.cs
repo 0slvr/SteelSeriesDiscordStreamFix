@@ -82,6 +82,16 @@ namespace SteelSeriesDiscordStreamFix
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+        private static string GetVersionText()
+        {
+            try
+            {
+                var v = typeof(Form1).Assembly.GetName().Version;
+                return v.Major + "." + v.Minor + "." + v.Build;
+            }
+            catch { return "?"; }
+        }
+
         private void InitializeComponent()
         {
             SuspendLayout();
@@ -89,7 +99,7 @@ namespace SteelSeriesDiscordStreamFix
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(480, 548);
             Name = "Form1";
-            Text = "SteelSeries Discord Stream Fix — Settings";
+            Text = "SteelSeries Discord Stream Fix — Settings (v" + GetVersionText() + ")";
             ResumeLayout(false);
         }
 
