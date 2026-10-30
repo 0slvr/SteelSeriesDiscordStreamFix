@@ -69,9 +69,15 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             while (IsRunning() && DateTime.UtcNow < until) Thread.Sleep(200);
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AllowSetForegroundWindow(int dwProcessId);
+
         /// <summary>Starts the installed app. If it is already running it just shows its Settings window.</summary>
         public static void Launch(string arguments)
         {
+            // The launcher was just clicked, so it may hand the right to come to the front to the app it starts.
+            try { AllowSetForegroundWindow(-1 /* ASFW_ANY */); } catch { }
+
             Process.Start(new ProcessStartInfo
             {
                 FileName = ExePath,

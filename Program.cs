@@ -171,6 +171,10 @@ namespace SteelSeriesDiscordStreamFix
         {
             try
             {
+                // This process was just started by the user, so it may bring a window to the front. Let the
+                // running instance do it too, otherwise its Settings window can open BEHIND other windows.
+                try { AllowSetForegroundWindow(-1 /* ASFW_ANY */); } catch { }
+
                 using (var showEvent = EventWaitHandle.OpenExisting(ShowSettingsEventName))
                 {
                     showEvent.Set();
@@ -196,6 +200,9 @@ namespace SteelSeriesDiscordStreamFix
                 try { SetProcessDPIAware(); } catch { /* pre-Vista, irrelevant */ }
             }
         }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AllowSetForegroundWindow(int dwProcessId);
 
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);

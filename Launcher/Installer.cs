@@ -113,7 +113,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
                         InstalledApp now = InstalledApp.Detect();
                         if (now != null && now.Version >= target && runningSince != null &&
-                            DateTime.UtcNow - runningSince.Value > TimeSpan.FromSeconds(3))
+                            DateTime.UtcNow - runningSince.Value > TimeSpan.FromSeconds(2))
                         {
                             Log.Write("App is installed and running while Setup is still open; continuing.");
                             break;
@@ -132,7 +132,8 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     return "The installer finished, but the app was not found in " + InstalledApp.RootDir + ".";
 
                 // 4. Setup normally starts the app itself; if it did not, start it ourselves.
-                if (!WaitForStableRunning(10000))
+                // Setup has exited, so its install hook is done: a short grace period is enough for it to have started the app.
+                if (!WaitForStableRunning(3000))
                 {
                     SetQuietFlag(false);
                     InstalledApp.Launch("--autostart");
@@ -162,7 +163,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 if (InstalledApp.IsRunning())
                 {
                     if (since == null) since = DateTime.UtcNow;
-                    else if (DateTime.UtcNow - since.Value > TimeSpan.FromSeconds(2)) return true;
+                    else if (DateTime.UtcNow - since.Value > TimeSpan.FromSeconds(1)) return true;
                 }
                 else since = null;
                 Thread.Sleep(250);

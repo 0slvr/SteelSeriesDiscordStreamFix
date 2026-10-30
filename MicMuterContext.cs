@@ -462,6 +462,10 @@ namespace SteelSeriesDiscordStreamFix
             }
             _settingsForm.Show();
             _settingsForm.WindowState = FormWindowState.Normal;
+            // A background app is not allowed to steal focus, so the window could stay behind others.
+            // Toggling TopMost reliably puts it in front without keeping it always-on-top.
+            _settingsForm.TopMost = true;
+            _settingsForm.TopMost = false;
             _settingsForm.BringToFront();
             _settingsForm.Activate();
         }
