@@ -31,14 +31,16 @@ namespace SteelSeriesDiscordStreamFix.Launcher
         /// <paramref name="settings"/> is null for an update: the user's saved options stay as they are.
         /// Returns null on success, otherwise a message for the user. Blocking: call it from a worker thread.
         /// </summary>
-        public static string Install(LauncherSettings settings)
+        public static string Install(LauncherSettings settings, Action<string> progress = null)
         {
+            Log.Write("Install started. fresh=" + (settings != null));
             string tempDir = Path.Combine(Path.GetTempPath(), "SteelSeriesDiscordStreamFix-setup-" + Guid.NewGuid().ToString("N"));
             bool freshInstall = settings != null;
 
             try
             {
                 Directory.CreateDirectory(tempDir);
+                if (progress != null) progress("Preparing the installer...");
                 string setupPath = Path.Combine(tempDir, "SteelSeriesDiscordStreamFix-win-Setup.exe");
                 using (var res = Assembly.GetExecutingAssembly().GetManifestResourceStream("Setup.exe"))
                 {
@@ -46,11 +48,17 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     using (var file = File.Create(setupPath)) res.CopyTo(file);
                 }
 
+                Log.Write("Extracted Setup to " + setupPath);
+
                 // 1. Save the options first so the app already has them when it starts for the first time.
                 if (settings != null) WriteSettings(settings);
 
+                Log.Write("Settings written.");
+
                 // 2. Close a running copy cleanly (it restores the devices it hid and un-mutes Discord).
+                if (progress != null) progress("Closing the running copy...");
                 InstalledApp.RequestExitAndWait(8000);
+                Log.Write("Running copy handled.");
 
                 // 3. Velopack's own Setup, silent. After "--" come the arguments for the app it starts:
                 //    --autostart = start in the background without opening the Settings window.
@@ -65,6 +73,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     CreateNoWindow = true
                 };
                 Log.Write("Running embedded Setup: " + psi.Arguments);
+                if (progress != null) progress("Installing... (this can take up to a minute)");
                 Version mine = Assembly.GetExecutingAssembly().GetName().Version;
                 var target = new Version(mine.Major, mine.Minor, mine.Build);
 
@@ -74,9 +83,19 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
                     // Normally Setup exits after it started the app. Do not hang if it stays open: once the new
                     // version is installed AND running, the job is done.
-                    var deadline = DateTime.UtcNow.AddMinutes(3);
+                    Log.Write("Setup started, pid " + proc.Id);
+                    var deadline = DateTime.UtcNow.AddMinutes(2);
+                    var nextBeat = DateTime.UtcNow.AddSeconds(5);
                     while (true)
                     {
+                        if (DateTime.UtcNow >= nextBeat)
+                        {
+                            nextBeat = DateTime.UtcNow.AddSeconds(5);
+                            InstalledApp d = InstalledApp.Detect();
+                            Log.Write("Waiting: setupExited=" + proc.HasExited + ", installed=" + (d == null ? "none" : d.Version.ToString()) +
+                                      ", appRunning=" + InstalledApp.IsRunning());
+                        }
+
                         if (proc.HasExited)
                         {
                             Log.Write("Setup exit code: " + proc.ExitCode);

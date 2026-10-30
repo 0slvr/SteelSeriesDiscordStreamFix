@@ -194,7 +194,11 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 StartWithWindows = _chkStart.Checked
             };
 
-            string error = await Task.Run(() => Installer.Install(settings));
+            Action<string> progress = msg =>
+            {
+                try { BeginInvoke(new Action(() => _status.Text = msg)); } catch { }
+            };
+            string error = await Task.Run(() => Installer.Install(settings, progress));
 
             _busy = false;
             if (error == null)
