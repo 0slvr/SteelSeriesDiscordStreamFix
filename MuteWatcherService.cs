@@ -61,11 +61,22 @@ namespace SteelSeriesDiscordStreamFix
         private int _safetyNetRunning;
         private readonly Dictionary<int, AudioSessionControl> _trackedSessions = new Dictionary<int, AudioSessionControl>();
         private readonly Dictionary<int, DiscordSessionEventsHandler> _sessionEventHandlers = new Dictionary<int, DiscordSessionEventsHandler>();
+        // Keys (see GetSessionKey) of sessions whose mute WE applied. On exit we only undo these, so a session
+        // the user muted themselves is never un-muted behind their back. Guarded by _sessionsLock.
+        private readonly HashSet<string> _mutedByUsKeys = new HashSet<string>();
+        // Keys of sessions the user deliberately un-muted. They survive a rebind (Sonar restart, device event)
+        // so we do not re-mute a session the user already took control of. Guarded by _sessionsLock.
+        private readonly HashSet<string> _userUnmutedKeys = new HashSet<string>();
+        private const int MaxRememberedKeys = 200;
 
         private MMDevice _targetDevice;
         private AudioSessionManager _sessionManager;
         private System.Windows.Forms.Timer _safetyNetTimer;
         private System.Threading.Timer _topologyDebounceTimer;
+        // Coalesces the burst of device events (Sonar restart sends dozens) into ONE re-check.
+        private System.Threading.Timer _recheckTimer;
+        private bool _recheckOurs;
+        private const int RecheckDebounceMs = 1000;
         private volatile bool _disposed;
 
         private DateTime _lastDeviceCheckUtc = DateTime.MinValue;
@@ -239,7 +250,19 @@ namespace SteelSeriesDiscordStreamFix
 
             if (!DiscordProcessNames.Contains(processName)) return false;
 
-            var handler = new DiscordSessionEventsHandler(pid, this, session);
+            string key = GetSessionKey(session, pid);
+
+            // The user already un-muted this very session on purpose (we are just re-binding after a device
+            // event): leave it alone instead of starting a new protection window.
+            bool userUnmuted;
+            lock (_sessionsLock) { userUnmuted = _userUnmutedKeys.Contains(key); }
+            if (userUnmuted)
+            {
+                Logger.Log($"MuteWatcherService: Discord session (pid={pid}) was un-muted by the user earlier — not re-muting it.");
+                return false;
+            }
+
+            var handler = new DiscordSessionEventsHandler(pid, key, this, session);
             lock (_sessionsLock)
             {
                 if (_disposed) return false;
@@ -248,18 +271,44 @@ namespace SteelSeriesDiscordStreamFix
                 _sessionEventHandlers[pid] = handler;
             }
 
-            MuteSession(session, $"new Discord session detected (pid={pid})");
+            MuteSession(session, key, $"new Discord session detected (pid={pid})");
             session.RegisterEventClient(handler);
             return true;
         }
 
-        private void MuteSession(AudioSessionControl session, string reason)
+        /// <summary>
+        /// Stable identity of a session across re-binds: the WASAPI session instance id, or the PID if
+        /// Windows does not give us one.
+        /// </summary>
+        private static string GetSessionKey(AudioSessionControl session, int pid)
+        {
+            try
+            {
+                string id = session.GetSessionInstanceIdentifier;
+                if (!string.IsNullOrEmpty(id)) return id;
+            }
+            catch { }
+            return "pid:" + pid;
+        }
+
+        private void RememberUserUnmute(string key)
+        {
+            lock (_sessionsLock)
+            {
+                _mutedByUsKeys.Remove(key);
+                if (_userUnmutedKeys.Count >= MaxRememberedKeys) _userUnmutedKeys.Clear();
+                _userUnmutedKeys.Add(key);
+            }
+        }
+
+        private void MuteSession(AudioSessionControl session, string key, string reason)
         {
             try
             {
                 if (!session.SimpleAudioVolume.Mute)
                 {
                     session.SimpleAudioVolume.Mute = true;
+                    lock (_sessionsLock) { _mutedByUsKeys.Add(key); }
                     Logger.Log("MuteWatcherService: muted Discord — " + reason);
                 }
             }
@@ -394,27 +443,51 @@ namespace SteelSeriesDiscordStreamFix
         private void ScheduleTopologyRecheck(string changedDeviceId)
         {
             if (_disposed) return;
-            Task.Run(() =>
+
+            // Windows sends a burst of events when Sonar restarts. Instead of one rebind per event, wait until
+            // the burst is over and do a single re-check.
+            lock (_topologyLock)
             {
-                try
+                if (_disposed) return;
+
+                // If the event concerns our own endpoint (Sonar restart, audio service restart, resume from
+                // sleep) the device ID is unchanged but the old session manager is dead, so we must rebind
+                // even though the device looks "Active" again.
+                if (changedDeviceId != null && changedDeviceId == _targetDeviceId)
+                    _recheckOurs = true;
+
+                if (_recheckTimer == null)
+                    _recheckTimer = new System.Threading.Timer(_ => RunTopologyRecheck(), null, RecheckDebounceMs, System.Threading.Timeout.Infinite);
+                else
+                    _recheckTimer.Change(RecheckDebounceMs, System.Threading.Timeout.Infinite);
+            }
+        }
+
+        private void RunTopologyRecheck()
+        {
+            bool isOurs;
+            lock (_topologyLock)
+            {
+                isOurs = _recheckOurs;
+                _recheckOurs = false;
+            }
+
+            if (_disposed) return;
+
+            try
+            {
+                lock (_lock)
                 {
-                    lock (_lock)
-                    {
-                        if (_disposed) return;
-                        // If the event concerns our own endpoint (Sonar restart, audio service restart, resume
-                        // from sleep) the device ID is unchanged but the old session manager is dead, so rebind
-                        // even though the device looks "Active" again.
-                        bool isOurs = changedDeviceId != null && changedDeviceId == _targetDeviceId;
-                        bool currentStillValid = _targetDevice != null && DeviceStillExists(_targetDevice.ID);
-                        if (!currentStillValid || isOurs)
-                            BindToTargetDevice();
-                    }
+                    if (_disposed) return;
+                    bool currentStillValid = _targetDevice != null && DeviceStillExists(_targetDevice.ID);
+                    if (!currentStillValid || isOurs)
+                        BindToTargetDevice();
                 }
-                catch (Exception ex)
-                {
-                    Logger.Log("ScheduleTopologyRecheck failed: " + ex);
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("RunTopologyRecheck failed: " + ex);
+            }
         }
 
         private void ScheduleTopologyChangedNotification()
@@ -481,12 +554,21 @@ namespace SteelSeriesDiscordStreamFix
             if (!gotLock) Logger.Log("Dispose: could not take the lock within 3 s (COM call stuck?) — continuing anyway.");
             try
             {
-                // We are going away, so stop forcing Discord muted: undo our mute on the way out.
+                // We are going away, so stop forcing Discord muted: undo OUR mutes on the way out.
+                // A session the user muted themselves (or un-muted on purpose) is left exactly as it is.
                 try
                 {
-                    AudioSessionControl[] sessions;
-                    lock (_sessionsLock) { sessions = new List<AudioSessionControl>(_trackedSessions.Values).ToArray(); }
-                    foreach (var s in sessions)
+                    var toUnmute = new List<AudioSessionControl>();
+                    lock (_sessionsLock)
+                    {
+                        foreach (var kv in _trackedSessions)
+                        {
+                            DiscordSessionEventsHandler h;
+                            if (_sessionEventHandlers.TryGetValue(kv.Key, out h) && _mutedByUsKeys.Contains(h.Key))
+                                toUnmute.Add(kv.Value);
+                        }
+                    }
+                    foreach (var s in toUnmute)
                     {
                         try { s.SimpleAudioVolume.Mute = false; } catch { }
                     }
@@ -494,7 +576,11 @@ namespace SteelSeriesDiscordStreamFix
                 catch { }
                 _safetyNetTimer?.Stop();
                 _safetyNetTimer?.Dispose();
-                lock (_topologyLock) { _topologyDebounceTimer?.Dispose(); }
+                lock (_topologyLock)
+                {
+                    _topologyDebounceTimer?.Dispose();
+                    _recheckTimer?.Dispose();
+                }
                 try { _enumerator.UnregisterEndpointNotificationCallback(this); } catch { }
                 if (gotLock)
                 {
@@ -511,6 +597,7 @@ namespace SteelSeriesDiscordStreamFix
         private sealed class DiscordSessionEventsHandler : IAudioSessionEventsHandler
         {
             private readonly int _pid;
+            public string Key { get; }
             private readonly MuteWatcherService _owner;
             private readonly AudioSessionControl _session;
             private readonly DateTime _trackedAtUtc = DateTime.UtcNow;
@@ -518,9 +605,10 @@ namespace SteelSeriesDiscordStreamFix
             private int _respectLogged;
             private volatile bool _closed;
 
-            public DiscordSessionEventsHandler(int pid, MuteWatcherService owner, AudioSessionControl session)
+            public DiscordSessionEventsHandler(int pid, string key, MuteWatcherService owner, AudioSessionControl session)
             {
                 _pid = pid;
+                Key = key;
                 _owner = owner;
                 _session = session;
             }
@@ -532,7 +620,9 @@ namespace SteelSeriesDiscordStreamFix
                 bool inWindow = DateTime.UtcNow - _trackedAtUtc <= RemuteWindow;
                 if (!inWindow || _remuteCount >= MaxRemutes)
                 {
-                    // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it.
+                    // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it,
+                    // and remember it so a later rebind does not re-mute this session.
+                    _owner.RememberUserUnmute(Key);
                     if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
                         Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted after the protection window — leaving it un-muted.");
                     return;
@@ -545,7 +635,7 @@ namespace SteelSeriesDiscordStreamFix
                 Task.Run(() =>
                 {
                     if (!_owner._disposed && !_closed)
-                        _owner.MuteSession(_session, "session was un-muted right after it opened — re-muting");
+                        _owner.MuteSession(_session, Key, "session was un-muted right after it opened — re-muting");
                 });
             }
 
@@ -556,6 +646,9 @@ namespace SteelSeriesDiscordStreamFix
                 {
                     _owner._trackedSessions.Remove(_pid);
                     _owner._sessionEventHandlers.Remove(_pid);
+                    // The session is gone for good: forget it so these sets cannot grow forever.
+                    _owner._mutedByUsKeys.Remove(Key);
+                    _owner._userUnmutedKeys.Remove(Key);
                 }
                 // Do not release the COM session from inside its own callback.
                 Task.Run(() =>

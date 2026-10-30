@@ -478,7 +478,9 @@ namespace SteelSeriesDiscordStreamFix
         private void LoadCurrentSettings()
         {
             chkDisable.Checked = AppSettings.SavedDisableSteelSeries;
-            chkStartWithWindows.Checked = AppSettings.StartWithWindows;
+            // Before the user has pressed Save once, the box is pre-ticked as the suggested default
+            // ("install once and forget"). Nothing is registered with Windows until they confirm with Save.
+            chkStartWithWindows.Checked = AppSettings.StartWithWindows || !AppSettings.HasConfirmedSettings;
         }
 
         private void BtnOk_Click(object sender, EventArgs e)
