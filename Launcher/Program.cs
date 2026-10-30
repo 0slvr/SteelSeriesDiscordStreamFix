@@ -91,7 +91,22 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 }
             }
 
-            // Same version, newer version, or the user said "no": just open what is installed.
+            if (installed.Version > thisVersion)
+            {
+                var open = MessageBox.Show(
+                    "Version " + installed.Version + " is installed. This file is older (" + thisVersion + ").\n\n" +
+                    "Open the installed version?\n\n" +
+                    "Yes = open it       No = cancel (nothing is changed)",
+                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1);
+                return open == DialogResult.Yes ? OpenInstalled() : 0;
+            }
+
+            // Same version, or the user said "no" to an update: just open what is installed.
+            return OpenInstalled();
+        }
+
+        private static int OpenInstalled()
+        {
             InstalledApp.OpenSettings();
             return 0;
         }
