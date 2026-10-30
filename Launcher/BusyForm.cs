@@ -4,29 +4,20 @@ using System.Windows.Forms;
 
 namespace SteelSeriesDiscordStreamFix.Launcher
 {
-    /// <summary>Small "please wait" window shown while an update runs.</summary>
-    internal sealed class BusyForm : Form
+    /// <summary>Small "please wait" window shown while an update runs (same look as every other window).</summary>
+    internal sealed class BusyForm : ThemedForm
     {
         public BusyForm(string text)
         {
             Text = "SteelSeries Discord Stream Fix";
-            ClientSize = new Size(380, 90);
-            StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
             ControlBox = false;
-            BackColor = Color.FromArgb(22, 22, 29);
-            Font = new Font("Segoe UI", 9.5F);
+            DesignWidth = 400;
+            DesignMinWidth = 300;
+            Body.Inset = new Padding(28, 28, 28, 28);
 
-            Controls.Add(new Label
-            {
-                AutoSize = false,
-                Dock = DockStyle.Fill,
-                Text = text,
-                ForeColor = Color.FromArgb(240, 240, 244),
-                TextAlign = ContentAlignment.MiddleCenter
-            });
+            Body.Add(new WrapLabel { Text = text, Centered = true, Font = Theme.Body, ForeColor = Theme.TextPrimary });
+            Body.Add(new ProgressStrip(), 18);
         }
     }
 }

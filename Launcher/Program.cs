@@ -34,7 +34,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 catch (Exception ex)
                 {
                     Log.Write("FATAL: " + ex);
-                    MessageBox.Show("Something went wrong: " + ex.Message, Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ThemedMessageBox.Show("Something went wrong: " + ex.Message, Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 1;
                 }
             }
@@ -51,7 +51,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             {
                 if (!Installer.HasEmbeddedSetup())
                 {
-                    MessageBox.Show("This is a development build without the embedded installer.", Title,
+                    ThemedMessageBox.Show("This is a development build without the embedded installer.", Title,
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return 1;
                 }
@@ -66,7 +66,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
             if (installed.Version < thisVersion && Installer.HasEmbeddedSetup())
             {
-                var answer = MessageBox.Show(
+                var answer = ThemedMessageBox.Show(
                     "Version " + installed.Version + " is installed. This file contains version " + thisVersion + ".\n\n" +
                     "Update now?  (Your settings are kept.)\n\n" +
                     "Yes = update       No = open the installed version without updating",
@@ -86,14 +86,14 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                     }
 
                     if (error != null)
-                        MessageBox.Show(error, Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        ThemedMessageBox.Show(error, Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return error == null ? 0 : 1;
                 }
             }
 
             if (installed.Version > thisVersion)
             {
-                var open = MessageBox.Show(
+                var open = ThemedMessageBox.Show(
                     "Version " + installed.Version + " is installed. This file is older (" + thisVersion + ").\n\n" +
                     "Open the installed version?\n\n" +
                     "Yes = open it       No = cancel (nothing is changed)",

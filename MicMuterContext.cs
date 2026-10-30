@@ -351,7 +351,7 @@ namespace SteelSeriesDiscordStreamFix
 
         private void UninstallApp()
         {
-            var confirm = MessageBox.Show(
+            var confirm = ThemedMessageBox.Show(
                 "This will restore SteelSeries devices, disable auto-start, and completely remove " +
                 "SteelSeries Discord Stream Fix — including all installed files, shortcuts, and settings. Continue?",
                 "Uninstall SteelSeries Discord Stream Fix",
@@ -403,7 +403,7 @@ namespace SteelSeriesDiscordStreamFix
                 {
                     Logger.Log("UninstallApp: Update.exe not found — likely running from source/dev; no install files to remove.");
 
-                    MessageBox.Show(
+                    ThemedMessageBox.Show(
                         "Settings removed and SteelSeries devices restored. This copy isn't running from an " +
                         "installed location, so there are no installed app files to remove automatically — " +
                         "delete the folder manually if needed.",
@@ -415,7 +415,7 @@ namespace SteelSeriesDiscordStreamFix
             catch (Exception ex)
             {
                 Logger.Log("UninstallApp failed: " + ex);
-                MessageBox.Show("Uninstall did not complete fully. See the log file for details.",
+                ThemedMessageBox.Show("Uninstall did not complete fully. See the log file for details.",
                     "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Application.Exit();
             }

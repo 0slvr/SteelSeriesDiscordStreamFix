@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Flexible, consistent windows everywhere.** Settings, Setup, the update prompt and the "please wait" window are now built on one shared layout kit instead of fixed pixel positions. Text wraps, so longer messages, bigger fonts and any display scaling make the window taller instead of clipping; windows can be resized (the body scrolls and the buttons stay pinned at the bottom); spacing, fonts, colours and button sizes are identical in every window.
+- **Message boxes match the app.** Confirmations and errors (uninstall, first-run close, update, unexpected error...) use the same dark style, buttons and keyboard behaviour (Enter = default, Esc = cancel) instead of the light Windows message box. Tooltips and the scroll bar are dark too.
+
 ### Fixed
 - **Discord could stay un-muted after a Sonar restart.** If Windows/Discord kept restoring the un-muted state and the app gave up after 3 re-mutes, that was wrongly remembered as "the user un-muted it on purpose", so a later reconnect left the session alone. Now only an un-mute that happens after the 15-second protection window counts as a deliberate user choice.
 - **Slow start after login.** Hiding Sonar Chat/Gaming at startup enumerated every audio device on the UI thread and could delay the app when the audio service was still starting. It now runs in the background. If the app is closed while this is still running, the devices are restored correctly and are not hidden again afterwards.

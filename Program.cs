@@ -44,7 +44,7 @@ namespace SteelSeriesDiscordStreamFix
                 var nowUtc = DateTime.UtcNow;
                 if (nowUtc - _lastErrorDialogUtc < TimeSpan.FromMinutes(1)) return;
                 _lastErrorDialogUtc = nowUtc;
-                MessageBox.Show("An unexpected error occurred. Details were written to the log file.",
+                ThemedMessageBox.Show("An unexpected error occurred. Details were written to the log file.",
                     "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -103,7 +103,7 @@ namespace SteelSeriesDiscordStreamFix
                     {
                         if (!TrySignalRunningInstance())
                         {
-                            MessageBox.Show("SteelSeries Discord Stream Fix is already running in the background.",
+                            ThemedMessageBox.Show("SteelSeries Discord Stream Fix is already running in the background.",
                                 "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         }
                         return;
