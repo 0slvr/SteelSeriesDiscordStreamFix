@@ -12,6 +12,12 @@ namespace SteelSeriesDiscordStreamFix
 
         private static DateTime _lastErrorDialogUtc = DateTime.MinValue;
 
+        /// <summary>
+        /// Set by MicMuterContext: the same cleanup the normal exit path runs (un-mute Discord, restore the
+        /// Sonar devices WE hid). Lets a crash leave Windows in a clean state too.
+        /// </summary>
+        internal static Action EmergencyCleanup;
+
         [STAThread]
         static void Main()
         {
@@ -19,7 +25,13 @@ namespace SteelSeriesDiscordStreamFix
             {
                 Logger.Log("FATAL UnhandledException: " +
                     ((e.ExceptionObject as Exception)?.ToString() ?? e.ExceptionObject?.ToString()));
-                try { SteelSeriesToggle.SetChatAndGamingVisible(true); } catch { }
+                try
+                {
+                    var cleanup = EmergencyCleanup;
+                    if (cleanup != null) cleanup();
+                    else if (AppSettings.WeHidDevices) SteelSeriesToggle.SetChatAndGamingVisible(true);
+                }
+                catch { }
             };
             Application.ThreadException += (s, e) =>
             {
@@ -140,6 +152,9 @@ namespace SteelSeriesDiscordStreamFix
                         @"SOFTWARE\SteelSeriesDiscordStreamFix", throwOnMissingSubKey: false);
                 }
                 catch (Exception ex) { Logger.Log("Uninstall hook: registry cleanup failed: " + ex.Message); }
+
+                // Logs live outside the install folder, so remove them here (last, nothing logs after this).
+                Logger.DeleteLogFolder();
             }
             catch
             {

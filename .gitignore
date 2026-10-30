@@ -432,3 +432,8 @@ Releases/
 logs/
 bin/
 obj/
+
+# archives (avoid committing project zips by accident)
+*.rar
+*.zip
+*.7z

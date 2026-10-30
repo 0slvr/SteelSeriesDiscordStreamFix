@@ -8,7 +8,7 @@ namespace SteelSeriesDiscordStreamFix
     {
         private static readonly string LogDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SteelSeriesDiscordStreamFix");
+            "SteelSeriesDiscordStreamFix-Data");
 
         private static readonly string LogPath = Path.Combine(LogDir, "log.txt");
         private static readonly string LogPathOld = Path.Combine(LogDir, "log.old.txt");
@@ -17,6 +17,25 @@ namespace SteelSeriesDiscordStreamFix
         private static readonly object LockObj = new object();
 
         public static string LogFilePath => LogPath;
+
+        /// <summary>
+        /// Removes the log folder. Only used by the uninstall hook: the logs now live outside Velopack's
+        /// install folder, so the uninstaller no longer deletes them by itself.
+        /// </summary>
+        public static void DeleteLogFolder()
+        {
+            try
+            {
+                lock (LockObj)
+                {
+                    if (Directory.Exists(LogDir)) Directory.Delete(LogDir, true);
+                }
+            }
+            catch
+            {
+                // Best effort.
+            }
+        }
 
         public static void OpenLogFile()
         {

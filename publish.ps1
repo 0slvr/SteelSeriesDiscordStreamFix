@@ -294,7 +294,7 @@ try {
         # ---------------- 3. Previous release (for deltas) ----------------
         $downloadRepo = if ($Transition) { $repoUrl } else { $updatesRepoUrl }
         Step "Downloading previous release for delta packages ($downloadRepo)"
-        $dl = Run vpk @("download", "github", "--repoUrl", $downloadRepo, "--token", $env:GH_TOKEN, "-o", $releasesDir) -AllowFail
+        $dl = Run vpk @("download", "github", "--repoUrl", $downloadRepo, "--pre", "--token", $env:GH_TOKEN, "-o", $releasesDir) -AllowFail
         if ($dl -ne 0) { Warn "Could not download the previous release (first release or offline). Continuing with local files." }
 
         # ---------------- 4. Pack ----------------
@@ -332,6 +332,10 @@ try {
             else {
                 Run git @("-C", $root, "push", "-u", "origin", $branch) | Out-Null
             }
+
+            # Tag the source so the next release's notes only list commits made since this one.
+            Run git @("-C", $root, "tag", "v$version") -AllowFail | Out-Null
+            Run git @("-C", $root, "push", "origin", "v$version") -AllowFail | Out-Null
         }
         elseif ($DryRun) {
             Info "Dry run: skipped version.txt update and git commit/push."

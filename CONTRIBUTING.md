@@ -9,7 +9,7 @@ Use the **Bug report** template and attach your log file.
 Open an issue describing the problem you want solved, not just the solution.
 
 ## Pull requests
-1. Fork the repo and create a branch from `main`.
+1. Fork the repo and create a branch from `master`.
 2. Keep changes focused: one fix or feature per PR.
 3. Test on Windows with Sonar installed before submitting.
 4. Describe what you changed and how you tested it.

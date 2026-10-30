@@ -42,6 +42,9 @@ namespace SteelSeriesDiscordStreamFix
             }
             _uiContext = SynchronizationContext.Current;
 
+            // A crash also runs the same cleanup (see Program.EmergencyCleanup).
+            Program.EmergencyCleanup = Cleanup;
+
             // Windows logoff/shutdown does not go through ExitApp(), so clean up here as well.
             Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
             Application.ApplicationExit += (s, e) => Cleanup();
@@ -153,6 +156,10 @@ namespace SteelSeriesDiscordStreamFix
             if (_exiting) return;
 
             bool disable = AppSettings.SavedDisableSteelSeries;
+
+            // Option off: we only ever restore devices WE hid. If we did not hide any, there is nothing to do
+            // (the user may have hidden them some other way on purpose).
+            if (!disable && !AppSettings.WeHidDevices) return;
 
             // Our own hide/show calls make Windows raise device notifications. Only act when the devices are
             // really not in the wanted state; after our change they are, so the chain stops by itself.
