@@ -60,7 +60,10 @@ Once installed, there's nothing to do. Join a Discord call or start streaming, a
 
 - **Discord went silent after enabling "Hide Sonar - Chat / Gaming":** turn that option off.
 - **Status shows "Sonar not found":** make sure Sonar is running. The app retries every 30 seconds.
-- **Something looks wrong:** open the log file from the settings window and attach it when reporting an issue.
+- **Something looks wrong:** open the log file from the settings window and attach it when reporting an issue. The log starts with the app version and Windows build, and your Windows user name is replaced by `%USERPROFILE%`, but read it once before posting.
+- **Sonar Chat / Gaming stay hidden after a crash, a forced kill or a manual delete of the app:** open *Sound settings > More sound settings > Playback*, right-click an empty area, tick *Show Disabled Devices*, then right-click **SteelSeries Sonar - Chat** / **Gaming** and choose *Enable*.
+- **Another Discord client (a fork) is not muted:** add a string value `ExtraProcessNames` to `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` with the process names separated by commas (e.g. `MyDiscordFork,AnotherClient`), then restart the app.
+- **No warning notifications while gaming:** Windows can hide notifications during Focus Assist / game mode. The current status is always visible in the Settings window.
 
 ## Disclaimer
 

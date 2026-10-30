@@ -59,8 +59,12 @@ namespace SteelSeriesDiscordStreamFix
         private readonly object _sessionsLock = new object();
         private volatile string _targetDeviceId;
         private int _safetyNetRunning;
-        private readonly Dictionary<int, AudioSessionControl> _trackedSessions = new Dictionary<int, AudioSessionControl>();
-        private readonly Dictionary<int, DiscordSessionEventsHandler> _sessionEventHandlers = new Dictionary<int, DiscordSessionEventsHandler>();
+        // Keyed by the session key (see GetSessionKey), NOT by PID: one Discord process can own several sessions
+        // on the same device, and a second session of an already-tracked PID must still be muted.
+        private readonly Dictionary<string, AudioSessionControl> _trackedSessions = new Dictionary<string, AudioSessionControl>();
+        private readonly Dictionary<string, DiscordSessionEventsHandler> _sessionEventHandlers = new Dictionary<string, DiscordSessionEventsHandler>();
+        // Extra process names from the registry (value "ExtraProcessNames", comma separated) for Discord forks.
+        private volatile HashSet<string> _extraProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Keys (see GetSessionKey) of sessions whose mute WE applied. On exit we only undo these, so a session
         // the user muted themselves is never un-muted behind their back. Guarded by _sessionsLock.
         private readonly HashSet<string> _mutedByUsKeys = new HashSet<string>();
@@ -89,14 +93,21 @@ namespace SteelSeriesDiscordStreamFix
         {
             _enumerator.RegisterEndpointNotificationCallback(this);
 
-            try
+            SetStatus("Starting...");
+
+            // Enumerating audio endpoints can be slow (audio service still starting after login, a stuck driver),
+            // so the first bind runs on a worker thread instead of freezing the window that pressed Save.
+            Task.Run(() =>
             {
-                BindToTargetDevice();
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("Start: initial BindToTargetDevice failed, will retry via safety net/device events: " + ex);
-            }
+                try
+                {
+                    BindToTargetDevice();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log("Start: initial BindToTargetDevice failed, will retry via safety net/device events: " + ex);
+                }
+            });
 
             // Ticks every 30 s. While the device is missing, every tick retries the bind;
             // once bound, the real device check only runs every 5 minutes.
@@ -124,6 +135,7 @@ namespace SteelSeriesDiscordStreamFix
                 if (_disposed) return;
 
                 UnbindCurrentDevice();
+                _extraProcessNames = LoadExtraProcessNames();
 
                 MMDevice found;
                 try
@@ -167,8 +179,18 @@ namespace SteelSeriesDiscordStreamFix
                     SessionCollection sessions = _sessionManager.Sessions;
                     for (int i = 0; i < sessions.Count; i++)
                     {
-                        var s = sessions[i];
-                        if (!TrackIfDiscord(s)) { try { s.Dispose(); } catch { } }
+                        // One broken session must not stop the others from being tracked.
+                        AudioSessionControl s = null;
+                        try
+                        {
+                            s = sessions[i];
+                            if (!TrackIfDiscord(s)) { try { s.Dispose(); } catch { } }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Log("BindToTargetDevice: session #" + i + " skipped: " + ex.Message);
+                            try { s?.Dispose(); } catch { }
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -255,7 +277,7 @@ namespace SteelSeriesDiscordStreamFix
                 return false;
             }
 
-            if (!DiscordProcessNames.Contains(processName)) return false;
+            if (!DiscordProcessNames.Contains(processName) && !_extraProcessNames.Contains(processName)) return false;
 
             string key = GetSessionKey(session, pid);
 
@@ -273,14 +295,47 @@ namespace SteelSeriesDiscordStreamFix
             lock (_sessionsLock)
             {
                 if (_disposed) return false;
-                if (_trackedSessions.ContainsKey(pid)) return false;
-                _trackedSessions[pid] = session;
-                _sessionEventHandlers[pid] = handler;
+                if (_trackedSessions.ContainsKey(key)) return false;
+                _trackedSessions[key] = session;
+                _sessionEventHandlers[key] = handler;
             }
 
-            MuteSession(session, key, $"new Discord session detected (pid={pid})");
-            session.RegisterEventClient(handler);
-            return true;
+            try
+            {
+                MuteSession(session, key, $"new Discord session detected (pid={pid})");
+                session.RegisterEventClient(handler);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Do not leave a half-registered session behind (tracked, but no events would ever arrive).
+                Logger.Log($"TrackIfDiscord: could not register session (pid={pid}): " + ex.Message);
+                lock (_sessionsLock)
+                {
+                    _trackedSessions.Remove(key);
+                    _sessionEventHandlers.Remove(key);
+                }
+                return false;
+            }
+        }
+
+        private static HashSet<string> LoadExtraProcessNames()
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string raw = AppSettings.ExtraProcessNames;
+                if (string.IsNullOrWhiteSpace(raw)) return set;
+                foreach (string part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string name = part.Trim();
+                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
+                    if (name.Length > 0) set.Add(name);
+                }
+                if (set.Count > 0) Logger.Log("MuteWatcherService: extra process names from settings: " + string.Join(", ", set));
+            }
+            catch (Exception ex) { Logger.Log("LoadExtraProcessNames failed: " + ex.Message); }
+            return set;
         }
 
         /// <summary>
@@ -345,12 +400,12 @@ namespace SteelSeriesDiscordStreamFix
                 _sessionManager = null;
             }
 
-            KeyValuePair<int, AudioSessionControl>[] tracked;
-            Dictionary<int, DiscordSessionEventsHandler> handlers;
+            KeyValuePair<string, AudioSessionControl>[] tracked;
+            Dictionary<string, DiscordSessionEventsHandler> handlers;
             lock (_sessionsLock)
             {
-                tracked = new List<KeyValuePair<int, AudioSessionControl>>(_trackedSessions).ToArray();
-                handlers = new Dictionary<int, DiscordSessionEventsHandler>(_sessionEventHandlers);
+                tracked = new List<KeyValuePair<string, AudioSessionControl>>(_trackedSessions).ToArray();
+                handlers = new Dictionary<string, DiscordSessionEventsHandler>(_sessionEventHandlers);
                 _sessionEventHandlers.Clear();
                 _trackedSessions.Clear();
             }
@@ -551,14 +606,20 @@ namespace SteelSeriesDiscordStreamFix
 
         private int _disposeStarted;
 
-        public void Dispose()
+        public void Dispose() { Shutdown(3000); }
+
+        /// <summary>
+        /// Stops the watcher and un-mutes what WE muted. <paramref name="lockWaitMs"/> bounds the wait for a COM
+        /// call that may be stuck (use a short value while Windows is shutting down).
+        /// </summary>
+        public void Shutdown(int lockWaitMs)
         {
             if (System.Threading.Interlocked.Exchange(ref _disposeStarted, 1) == 1) return;
             _disposed = true;
             // A stuck Sonar/audio driver can leave a COM call running while it holds _lock.
             // Wait a short while, then carry on so closing the app can never freeze the UI.
-            bool gotLock = System.Threading.Monitor.TryEnter(_lock, 3000);
-            if (!gotLock) Logger.Log("Dispose: could not take the lock within 3 s (COM call stuck?) — continuing anyway.");
+            bool gotLock = System.Threading.Monitor.TryEnter(_lock, lockWaitMs);
+            if (!gotLock) Logger.Log("Dispose: could not take the lock within " + lockWaitMs + " ms (COM call stuck?) — continuing anyway.");
             try
             {
                 // We are going away, so stop forcing Discord muted: undo OUR mutes on the way out.
@@ -661,8 +722,8 @@ namespace SteelSeriesDiscordStreamFix
                 _closed = true;
                 lock (_owner._sessionsLock)
                 {
-                    _owner._trackedSessions.Remove(_pid);
-                    _owner._sessionEventHandlers.Remove(_pid);
+                    _owner._trackedSessions.Remove(Key);
+                    _owner._sessionEventHandlers.Remove(Key);
                     // The session is gone for good: forget it so these sets cannot grow forever.
                     _owner._mutedByUsKeys.Remove(Key);
                     _owner._userUnmutedKeys.Remove(Key);

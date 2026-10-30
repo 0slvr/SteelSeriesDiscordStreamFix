@@ -58,6 +58,7 @@ namespace SteelSeriesDiscordStreamFix
 
             TryEnableDpiAwareness();
 
+            Logger.LogHeader();
             Logger.Log($"Main() launched. exe={Application.ExecutablePath}");
 
             bool isAutoStart = Array.Exists(Environment.GetCommandLineArgs(),
@@ -84,7 +85,8 @@ namespace SteelSeriesDiscordStreamFix
 
                 if (!ownsMutex)
                 {
-                    if (TrySignalRunningInstance())
+                    // A Windows-startup launch must never pop the Settings window of an instance that already runs.
+                    if (!isAutoStart && TrySignalRunningInstance())
                     {
                         return;
                     }
@@ -101,7 +103,7 @@ namespace SteelSeriesDiscordStreamFix
 
                     if (!ownsMutex)
                     {
-                        if (!TrySignalRunningInstance())
+                        if (!isAutoStart && !TrySignalRunningInstance())
                         {
                             ThemedMessageBox.Show("SteelSeries Discord Stream Fix is already running in the background.",
                                 "SteelSeries Discord Stream Fix", MessageBoxButtons.OK, MessageBoxIcon.Information);

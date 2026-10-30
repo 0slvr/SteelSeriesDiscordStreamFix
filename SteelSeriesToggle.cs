@@ -36,7 +36,11 @@ namespace SteelSeriesDiscordStreamFix
                             bool match = name.IndexOf(ChatDeviceNameFragment, StringComparison.OrdinalIgnoreCase) >= 0
                                       || name.IndexOf(GamingDeviceNameFragment, StringComparison.OrdinalIgnoreCase) >= 0;
                             if (!match) continue;
-                            bool isActive = device.State == DeviceState.Active;
+                            DeviceState state = device.State;
+                            // A device that is not present at all cannot be shown or hidden: ignore it, otherwise
+                            // it would look "wrong" forever and trigger pointless re-applies.
+                            if (state == DeviceState.NotPresent) continue;
+                            bool isActive = state == DeviceState.Active;
                             if (isActive != visible) return true;
                         }
                         catch { }

@@ -171,7 +171,8 @@ namespace SteelSeriesDiscordStreamFix
 
             if (status.StartsWith("Connected to", StringComparison.Ordinal))
                 labelStatus.ForeColor = Theme.Success;
-            else if (status.StartsWith("Not started", StringComparison.Ordinal))
+            else if (status.StartsWith("Not started", StringComparison.Ordinal) ||
+                     status.StartsWith("Starting", StringComparison.Ordinal))
                 labelStatus.ForeColor = Theme.TextSecondary;
             else
                 labelStatus.ForeColor = Theme.Danger;
@@ -309,7 +310,14 @@ namespace SteelSeriesDiscordStreamFix
 
                 AppSettings.MarkSettingsConfirmed();
 
-                _applySteelSeriesSetting(chkDisable.Checked);
+                // Hiding/showing devices talks to the audio engine and can be slow: never on the UI thread.
+                // If it fails, the app shows a warning notification by itself.
+                bool hideDevices = chkDisable.Checked;
+                Task.Run(() =>
+                {
+                    try { _applySteelSeriesSetting(hideDevices); }
+                    catch (Exception ex) { Logger.Log("Apply after Save failed: " + ex); }
+                });
 
                 _ensureWatcherStarted?.Invoke();
 

@@ -27,7 +27,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
         }
 
         /// <summary>
-        /// Installs (or updates) the app with the embedded Velopack Setup.exe and starts it quietly.
+        /// Installs (or updates) the app with the embedded Velopack Setup.exe; the app then opens its Settings window.
         /// <paramref name="settings"/> is null for an update: the user's saved options stay as they are.
         /// Returns null on success, otherwise a message for the user. Blocking: call it from a worker thread.
         /// </summary>
@@ -142,7 +142,6 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             catch (Exception ex)
             {
                 Log.Write("Install failed: " + ex);
-                SetQuietFlag(false);
                 if (freshInstall && InstalledApp.Detect() == null) RollbackSettings();
                 return "Installation failed: " + ex.Message;
             }
@@ -167,24 +166,6 @@ namespace SteelSeriesDiscordStreamFix.Launcher
                 Thread.Sleep(250);
             }
             return false;
-        }
-
-        private static void SetQuietFlag(bool on)
-        {
-            try
-            {
-                if (on)
-                {
-                    using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
-                        key.SetValue("QuietStartOnce", DateTime.UtcNow.Ticks.ToString(), RegistryValueKind.String);
-                }
-                else
-                {
-                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
-                        key?.DeleteValue("QuietStartOnce", false);
-                }
-            }
-            catch (Exception ex) { Log.Write("SetQuietFlag failed: " + ex.Message); }
         }
 
         private static void WriteSettings(LauncherSettings s)

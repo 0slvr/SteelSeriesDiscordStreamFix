@@ -56,7 +56,9 @@ namespace SteelSeriesDiscordStreamFix
             Program.EmergencyCleanup = Cleanup;
 
             // Windows logoff/shutdown does not go through ExitApp(), so clean up here as well.
-            Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding;
+            // SessionEnded (not SessionEnding): SessionEnding can still be CANCELLED by another program, and a
+            // cancelled shutdown must not leave this app disposed and doing nothing.
+            Microsoft.Win32.SystemEvents.SessionEnded += OnSessionEnded;
             Application.ApplicationExit += (s, e) => Cleanup();
 
             // Updates are applied by closing the app through ExitApp() so Cleanup() always runs first.
@@ -88,8 +90,7 @@ namespace SteelSeriesDiscordStreamFix
             {
                 EnsureWatcherStarted();
 
-                bool quietOnce = AppSettings.ConsumeQuietStartFlag(); // set by the installer after Save / update
-                if (isAutoStart || quietOnce)
+                if (isAutoStart)
                 {
                     showSettingsOnLaunch = false;
                     Logger.Log("Launched via Windows startup — running in the background, not opening Settings.");
@@ -271,10 +272,11 @@ namespace SteelSeriesDiscordStreamFix
             _balloon = null;
         }
 
-        private void OnSessionEnding(object sender, Microsoft.Win32.SessionEndingEventArgs e)
+        private void OnSessionEnded(object sender, Microsoft.Win32.SessionEndedEventArgs e)
         {
-            Logger.Log("MicMuterContext: Windows session ending (" + e.Reason + ") — restoring devices and un-muting Discord.");
-            Cleanup();
+            Logger.Log("MicMuterContext: Windows session ended (" + e.Reason + ") — restoring devices and un-muting Discord.");
+            // Windows only gives a short time at shutdown: do not wait long for a stuck audio call.
+            Cleanup(1000);
         }
 
         private void OnDeviceTopologyChanged()
@@ -319,7 +321,10 @@ namespace SteelSeriesDiscordStreamFix
                 var handles = new WaitHandle[] { _showSettingsEvent, _exitRequestEvent };
                 while (!_exiting)
                 {
-                    int signaled = WaitHandle.WaitAny(handles);
+                    int signaled;
+                    try { signaled = WaitHandle.WaitAny(handles); }
+                    catch (ObjectDisposedException) { break; } // the app is closing and the handles are gone
+                    catch (Exception ex) { Logger.Log("ShowSettingsListener stopped: " + ex.Message); break; }
                     {
                         if (_exiting) break;
 
@@ -434,13 +439,19 @@ namespace SteelSeriesDiscordStreamFix
                 if (!disable && !AppSettings.WeHidDevices) return;
 
                 _recentApplies.Enqueue(DateTime.UtcNow);
+
+                // Only claim ownership if there really is something for us to hide. If the user already hid the
+                // devices some other way, "restore on exit" must NOT bring them back behind the user's back.
+                bool somethingToHide = disable && SteelSeriesToggle.NeedsChange(false);
+
                 bool ok = false;
                 try { ok = SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
                 catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
 
                 if (ok)
                 {
-                    AppSettings.WeHidDevices = disable;
+                    if (!disable) AppSettings.WeHidDevices = false;
+                    else if (somethingToHide) AppSettings.WeHidDevices = true;
                     _hideFailureNotified = false;
                 }
                 else if (!_hideFailureNotified)
@@ -480,19 +491,21 @@ namespace SteelSeriesDiscordStreamFix
         /// Leaves Windows as we found it: un-mutes Discord and brings back the Sonar Chat/Gaming devices we hid.
         /// Safe to call several times and from any exit path (Exit, logoff, shutdown, uninstall).
         /// </summary>
-        private void Cleanup()
+        private void Cleanup() { Cleanup(3000); }
+
+        private void Cleanup(int lockWaitMs)
         {
             if (System.Threading.Interlocked.Exchange(ref _cleanedUp, 1) == 1) return;
 
             _exiting = true;
-            try { Microsoft.Win32.SystemEvents.SessionEnding -= OnSessionEnding; } catch { }
+            try { Microsoft.Win32.SystemEvents.SessionEnded -= OnSessionEnded; } catch { }
             try { _showSettingsEvent.Set(); } catch { }
-            try { _watcher.Dispose(); } catch (Exception ex) { Logger.Log("Cleanup: watcher dispose failed: " + ex.Message); }
+            try { _watcher.Shutdown(lockWaitMs); } catch (Exception ex) { Logger.Log("Cleanup: watcher dispose failed: " + ex.Message); }
 
             // Restore only what we hid. (They are hidden again automatically the next time the app starts.)
             // Wait briefly for a hide that may still be running in the background, so it cannot finish AFTER
             // this restore and leave the devices hidden.
-            bool gotApplyLock = Monitor.TryEnter(_applyLock, 3000);
+            bool gotApplyLock = Monitor.TryEnter(_applyLock, lockWaitMs);
             try
             {
                 if (AppSettings.WeHidDevices)

@@ -435,6 +435,7 @@ namespace SteelSeriesDiscordStreamFix
                       ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             SetStyle(ControlStyles.Selectable, false);
             TabStop = false;
+            AccessibleRole = AccessibleRole.StaticText; // custom-painted text: tell screen readers it is text
             Font = Theme.Body;
             ForeColor = Theme.TextPrimary;
         }

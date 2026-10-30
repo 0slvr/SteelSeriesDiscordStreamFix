@@ -149,30 +149,23 @@ namespace SteelSeriesDiscordStreamFix
             }
         }
 
-        private const string ValueNameQuietStartOnce = "QuietStartOnce";
+        private const string ValueNameExtraProcessNames = "ExtraProcessNames";
 
         /// <summary>
-        /// The installer sets this so the very first start after an install/update runs quietly (no Settings window,
-        /// the user just made their choices there). Reading it clears it.
+        /// Advanced, optional (no UI): comma-separated extra process names (without .exe) to treat as Discord,
+        /// e.g. a Discord fork. Set it in HKCU\SOFTWARE\SteelSeriesDiscordStreamFix as a string value.
         /// </summary>
-        public static bool ConsumeQuietStartFlag()
+        public static string ExtraProcessNames
         {
-            try
+            get
             {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, true))
+                try
                 {
-                    if (key == null) return false;
-                    object raw = key.GetValue(ValueNameQuietStartOnce);
-                    if (raw == null) return false;
-                    key.DeleteValue(ValueNameQuietStartOnce, false);
-
-                    // Only honoured right after the install: a stale flag must never hide the window the user asked for.
-                    long ticks;
-                    if (!long.TryParse(raw as string, out ticks)) return false;
-                    return DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) < TimeSpan.FromMinutes(2);
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath))
+                        return key?.GetValue(ValueNameExtraProcessNames) as string;
                 }
+                catch { return null; }
             }
-            catch { return false; }
         }
 
         private const string ValueNameSkippedUpdate = "SkippedUpdateVersion";

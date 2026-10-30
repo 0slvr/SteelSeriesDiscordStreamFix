@@ -30,6 +30,8 @@ namespace SteelSeriesDiscordStreamFix
 
         private static volatile bool _notInstalled;
         private static volatile bool _lastCheckFailed;
+        private static int _failures;
+        private static readonly Random Rng = new Random();
 
         private static UpdateManager _manager;
         private static UpdateInfo _info;
@@ -77,9 +79,25 @@ namespace SteelSeriesDiscordStreamFix
 
                 if (_notInstalled) return; // running from source, nothing to check
 
-                try { await Task.Delay(_lastCheckFailed ? RetryAfterFailure : CheckInterval); }
+                try { await Task.Delay(NextDelay()); }
                 catch { return; }
             }
+        }
+
+        /// <summary>
+        /// After a failure: 15 min, 30 min, 1 h ... up to the normal interval (GitHub rate limits and shared IPs
+        /// would otherwise be hit every 15 minutes forever). After a success: the normal interval plus a random
+        /// spread, so every installed copy does not ask at the same moment.
+        /// </summary>
+        private static TimeSpan NextDelay()
+        {
+            if (_lastCheckFailed)
+            {
+                double minutes = RetryAfterFailure.TotalMinutes * Math.Pow(2, Math.Min(Math.Max(_failures - 1, 0), 6));
+                var delay = TimeSpan.FromMinutes(minutes);
+                return delay > CheckInterval ? CheckInterval : delay;
+            }
+            return CheckInterval + TimeSpan.FromMinutes(Rng.Next(0, 30));
         }
 
         public static async Task<UpdateCheckResult> CheckForUpdateAsync(bool background, Action<string> statusCallback)
@@ -92,6 +110,7 @@ namespace SteelSeriesDiscordStreamFix
 
                 var mgr = new UpdateManager(new GithubSource(GithubRepoUrl, null, false));
                 var newVersion = await mgr.CheckForUpdatesAsync();
+                _failures = 0;
                 if (newVersion == null)
                 {
                     _manager = null;
@@ -132,7 +151,8 @@ namespace SteelSeriesDiscordStreamFix
             catch (Exception ex)
             {
                 _lastCheckFailed = true;
-                Logger.Log("AppUpdater failed: " + ex);
+                _failures++;
+                Logger.Log("AppUpdater failed (" + _failures + " in a row): " + ex.Message);
                 return UpdateCheckResult.Error;
             }
             finally

@@ -16,6 +16,27 @@ namespace SteelSeriesDiscordStreamFix
 
         private static readonly object LockObj = new object();
 
+        // Logs get attached to public issues: never write the Windows user name (it is part of every profile path).
+        private static readonly string ProfilePath = SafeProfilePath();
+
+        private static string SafeProfilePath()
+        {
+            try { return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); }
+            catch { return null; }
+        }
+
+        /// <summary>One line with the facts a bug report needs: app version, Windows build, bitness, runtime.</summary>
+        public static void LogHeader()
+        {
+            try
+            {
+                Version v = typeof(Logger).Assembly.GetName().Version;
+                Log("=== SteelSeriesDiscordStreamFix " + v + " | " + Environment.OSVersion.VersionString +
+                    " | 64-bit OS=" + Environment.Is64BitOperatingSystem + " | CLR " + Environment.Version + " ===");
+            }
+            catch { }
+        }
+
         public static string LogFilePath => LogPath;
 
         /// <summary>
@@ -55,6 +76,9 @@ namespace SteelSeriesDiscordStreamFix
         {
             try
             {
+                if (!string.IsNullOrEmpty(ProfilePath) && message != null)
+                    message = message.Replace(ProfilePath, "%USERPROFILE%");
+
                 lock (LockObj)
                 {
                     Directory.CreateDirectory(LogDir);
