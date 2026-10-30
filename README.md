@@ -66,7 +66,7 @@ Once installed, there's nothing to do. Join a Discord call or start streaming, a
 
 This is an unofficial community tool and is **not affiliated with or endorsed by SteelSeries or Discord**. SteelSeries, Sonar, and Discord are trademarks of their respective owners. Use at your own risk.
 
-## Limitations
+## Limitations 
 
 - Windows only, and **Sonar must be installed**
 - Discord in the browser is not supported
