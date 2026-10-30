@@ -54,25 +54,51 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
                 // 3. Velopack's own Setup, silent. After "--" come the arguments for the app it starts:
                 //    --autostart = start in the background without opening the Settings window.
+                Directory.CreateDirectory(Log.Dir);
+                string setupLog = Path.Combine(Log.Dir, "setup-log.txt");
                 var psi = new ProcessStartInfo
                 {
                     FileName = setupPath,
-                    Arguments = "--silent -- --autostart",
+                    Arguments = "--silent --log \"" + setupLog + "\" -- --autostart",
                     WorkingDirectory = tempDir,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
                 Log.Write("Running embedded Setup: " + psi.Arguments);
+                Version mine = Assembly.GetExecutingAssembly().GetName().Version;
+                var target = new Version(mine.Major, mine.Minor, mine.Build);
+
                 using (var proc = Process.Start(psi))
                 {
                     if (proc == null) return "The installer could not be started.";
-                    if (!proc.WaitForExit(3 * 60 * 1000))
+
+                    // Normally Setup exits after it started the app. Do not hang if it stays open: once the new
+                    // version is installed AND running, the job is done.
+                    var deadline = DateTime.UtcNow.AddMinutes(3);
+                    while (true)
                     {
-                        try { proc.Kill(); } catch { }
-                        return "The installer did not finish in time.";
+                        if (proc.HasExited)
+                        {
+                            Log.Write("Setup exit code: " + proc.ExitCode);
+                            if (proc.ExitCode != 0)
+                                return "The installer failed (exit code " + proc.ExitCode + "). Details: " + setupLog;
+                            break;
+                        }
+
+                        InstalledApp now = InstalledApp.Detect();
+                        if (now != null && now.Version >= target && InstalledApp.IsRunning())
+                        {
+                            Log.Write("App is installed and running while Setup is still open; continuing.");
+                            break;
+                        }
+
+                        if (DateTime.UtcNow > deadline)
+                        {
+                            try { proc.Kill(); } catch { }
+                            return "The installer did not finish in time. Details: " + setupLog;
+                        }
+                        Thread.Sleep(300);
                     }
-                    Log.Write("Setup exit code: " + proc.ExitCode);
-                    if (proc.ExitCode != 0) return "The installer failed (exit code " + proc.ExitCode + ").";
                 }
 
                 if (InstalledApp.Detect() == null)

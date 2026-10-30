@@ -84,7 +84,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
     internal static class Log
     {
-        private static readonly string Dir = Path.Combine(
+        public static readonly string Dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SteelSeriesDiscordStreamFix-Data");
 

@@ -39,7 +39,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(480, 344);
+            ClientSize = new Size(480, 364);
             Text = "SteelSeries Discord Stream Fix — Setup (v" + versionText + ")";
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -72,7 +72,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             {
                 AutoSize = false,
                 Location = new Point(32, 70),
-                Size = new Size(416, 60),
+                Size = new Size(416, 80),
                 Text = "Keeps Discord out of Sonar's virtual microphone. Choose your options and press Save: " +
                        "the app is installed for your Windows account only (no admin rights) and starts " +
                        "protecting Discord right away.",
@@ -84,7 +84,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             var caption = new Label
             {
                 AutoSize = false,
-                Location = new Point(32, 140),
+                Location = new Point(32, 160),
                 Size = new Size(300, 16),
                 Text = "PREFERENCES",
                 ForeColor = ColorTextSecondary,
@@ -94,7 +94,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
 
             var panel = new RoundedPanel
             {
-                Location = new Point(32, 160),
+                Location = new Point(32, 180),
                 Size = new Size(416, 88),
                 FillColor = ColorSurface,
                 CornerRadius = 14
@@ -131,7 +131,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             _status = new Label
             {
                 AutoSize = false,
-                Location = new Point(32, 260),
+                Location = new Point(32, 280),
                 Size = new Size(416, 20),
                 Text = "Version " + versionText + " · nothing is installed until you press Save",
                 ForeColor = ColorTextSecondary,
@@ -143,7 +143,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             {
                 Text = "Cancel",
                 Size = new Size(90, 36),
-                Location = new Point(238, 292),
+                Location = new Point(238, 312),
                 BaseColor = ColorSurface,
                 HoverColor = ColorSurfaceHover,
                 TextColor = ColorTextPrimary,
@@ -155,7 +155,7 @@ namespace SteelSeriesDiscordStreamFix.Launcher
             {
                 Text = "Save",
                 Size = new Size(108, 36),
-                Location = new Point(340, 292),
+                Location = new Point(340, 312),
                 BaseColor = ColorAccent,
                 HoverColor = ColorAccentHover,
                 TextColor = Color.White
