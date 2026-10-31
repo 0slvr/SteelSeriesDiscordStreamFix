@@ -49,14 +49,16 @@ namespace SteelSeriesDiscordStreamFix.Tests
                 RemutePolicy.Decide(false, TimeSpan.FromMinutes(1), Window, 3, 3));
         }
 
+        // The enum is internal, so a public test method cannot take it as a parameter: use a bool instead.
         [Theory]
-        [InlineData(0, RemuteDecision.Remute)]
-        [InlineData(1, RemuteDecision.Remute)]
-        [InlineData(2, RemuteDecision.Remute)]
-        [InlineData(3, RemuteDecision.GiveUp)]
-        [InlineData(4, RemuteDecision.GiveUp)]
-        public void InsideWindow_GivesUpOnceTheBudgetIsUsedUp(int remutesDone, RemuteDecision expected)
+        [InlineData(0, false)]
+        [InlineData(1, false)]
+        [InlineData(2, false)]
+        [InlineData(3, true)]
+        [InlineData(4, true)]
+        public void InsideWindow_GivesUpOnceTheBudgetIsUsedUp(int remutesDone, bool expectGiveUp)
         {
+            RemuteDecision expected = expectGiveUp ? RemuteDecision.GiveUp : RemuteDecision.Remute;
             Assert.Equal(expected,
                 RemutePolicy.Decide(false, TimeSpan.FromSeconds(5), Window, remutesDone, 3));
         }
