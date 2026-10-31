@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="SteelSeriesDiscordStreamFix.csproj" Id="03391266-44b7-4867-b6f0-ee64770f167a" />
   <Project Path="Launcher/SteelSeriesDiscordStreamFix.Launcher.csproj" />
+  <Project Path="Tests/SteelSeriesDiscordStreamFix.Tests.csproj" />
 </Solution>

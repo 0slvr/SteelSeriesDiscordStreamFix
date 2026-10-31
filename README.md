@@ -67,6 +67,10 @@ Once installed, there's nothing to do. Join a Discord call or start streaming, a
 - **Discord gets un-muted again by itself:** after Discord opens a session the app re-mutes it for 15 seconds, at most 3 times. If Discord restores its state later than that on your PC, set the DWORD values `RemuteWindowSeconds` (5-120) and/or `MaxRemutes` (1-10) in `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` and restart the app. The log says clearly when the app gives up on a session.
 - **No warning notifications while gaming:** Windows can hide notifications during Focus Assist / game mode. The current status is always visible in the Settings window.
 
+## Development
+
+Build the app with `dotnet build SteelSeriesDiscordStreamFix.csproj -c Release` and run the unit tests with `dotnet test Tests/SteelSeriesDiscordStreamFix.Tests.csproj`. The tests cover the pure logic only (re-mute policy, hide-ownership rules, log redaction, Discord process matching, crash-restart limits). GitHub Actions builds both projects and runs the tests on every push and pull request.
+
 ## Disclaimer
 
 This is an unofficial community tool and is **not affiliated with or endorsed by SteelSeries or Discord**. SteelSeries, Sonar, and Discord are trademarks of their respective owners. Use at your own risk.

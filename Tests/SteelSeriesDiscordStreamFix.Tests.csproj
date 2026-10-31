@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unit tests for the pure logic of the app. The app itself is a net472 WinForms .exe, so instead of referencing it
+    these tests compile the few dependency-free source files directly. Nothing here touches audio, COM or the registry.
+    Run:  dotnet test Tests/SteelSeriesDiscordStreamFix.Tests.csproj
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>SteelSeriesDiscordStreamFix.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\RemutePolicy.cs" Link="Shared\RemutePolicy.cs" />
+    <Compile Include="..\HideOwnership.cs" Link="Shared\HideOwnership.cs" />
+    <Compile Include="..\LogRedactor.cs" Link="Shared\LogRedactor.cs" />
+    <Compile Include="..\DiscordProcessMatcher.cs" Link="Shared\DiscordProcessMatcher.cs" />
+    <Compile Include="..\CrashRestartPolicy.cs" Link="Shared\CrashRestartPolicy.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

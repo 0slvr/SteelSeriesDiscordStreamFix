@@ -379,7 +379,7 @@ namespace SteelSeriesDiscordStreamFix
             thread.Start();
         }
 
-        private void UninstallApp()
+        private async void UninstallApp()
         {
             var confirm = ThemedMessageBox.Show(
                 "This will restore SteelSeries devices, disable auto-start, and completely remove " +
@@ -389,10 +389,19 @@ namespace SteelSeriesDiscordStreamFix
                 MessageBoxIcon.Warning);
 
             if (confirm != DialogResult.Yes) return;
+            if (Interlocked.Exchange(ref _exitStarted, 1) == 1) return; // an exit is already running
+
+            _exiting = true;
+            try { _settingsForm?.Hide(); } catch { }
+            CleanupUi();
 
             try
             {
-                Cleanup();
+                // Restoring the devices talks to the audio engine: worker thread with a time limit, never the UI thread.
+                Task work = Task.Run(() => Cleanup());
+                Task finished = await Task.WhenAny(work, Task.Delay(6000));
+                if (finished != work)
+                    Logger.Log("UninstallApp: cleanup took longer than 6 s — continuing anyway.");
 
                 AppSettings.StartWithWindows = false;
 
@@ -461,7 +470,7 @@ namespace SteelSeriesDiscordStreamFix
 
                 // Option off: only bring devices back if WE hid them. Never force-show devices the user
                 // hid some other way.
-                if (!disable && !AppSettings.WeHidDevices) return;
+                if (HideOwnership.ShouldSkip(disable, AppSettings.WeHidDevices)) return;
 
                 _recentApplies.Enqueue(DateTime.UtcNow);
 
@@ -471,27 +480,30 @@ namespace SteelSeriesDiscordStreamFix
 
                 // Write ownership FIRST: if the PC loses power or the process is killed right after hiding, the
                 // next start still knows it must bring the devices back.
-                bool claimedNow = false;
-                if (disable && somethingToHide && !AppSettings.WeHidDevices)
+                bool weHid = AppSettings.WeHidDevices;
+                bool claimedNow = HideOwnership.ShouldClaimBeforeHiding(disable, somethingToHide, weHid);
+                if (claimedNow)
                 {
                     AppSettings.WeHidDevices = true;
-                    claimedNow = true;
+                    weHid = true;
                 }
 
                 bool ok = false;
                 try { ok = SteelSeriesToggle.SetChatAndGamingVisible(!disable); }
                 catch (Exception ex) { Logger.Log("ApplySteelSeriesSetting failed: " + ex); }
 
+                // After a failure, a claim made just now is given back if the devices are still visible
+                // (every time, not only on the first failure).
+                bool stillVisible = !ok && claimedNow && SteelSeriesToggle.NeedsChange(false);
+                bool owned = HideOwnership.OwnershipAfterApply(disable, somethingToHide, weHid, ok, claimedNow, stillVisible);
+                if (owned != AppSettings.WeHidDevices) AppSettings.WeHidDevices = owned;
+
                 if (ok)
                 {
-                    if (!disable) AppSettings.WeHidDevices = false;
-                    else if (somethingToHide) AppSettings.WeHidDevices = true;
                     _hideFailureNotified = false;
                 }
                 else if (!_hideFailureNotified)
                 {
-                    // Nothing was really hidden: do not keep a claim we cannot honour.
-                    if (claimedNow && SteelSeriesToggle.NeedsChange(false)) AppSettings.WeHidDevices = false;
                     _hideFailureNotified = true;
                     OnWatcherProblem("Could not " + (disable ? "hide" : "show") +
                         " the SteelSeries Chat/Gaming devices. A Windows update may have changed the undocumented API this relies on. See the log file.");

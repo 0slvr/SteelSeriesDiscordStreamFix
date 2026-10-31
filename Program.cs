@@ -72,6 +72,7 @@ namespace SteelSeriesDiscordStreamFix
 
             VelopackApp.Build()
                 .OnBeforeUninstallFastCallback(v => UninstallCleanup())
+                .OnBeforeUpdateFastCallback(v => BeforeUpdateMarkClean())
                 .Run();
 
             TryEnableDpiAwareness();
@@ -222,8 +223,8 @@ namespace SteelSeriesDiscordStreamFix
                 using (Process me = Process.GetCurrentProcess())
                     uptime = DateTime.Now - me.StartTime;
 
-                int next = uptime >= StableUptime ? 1 : CrashRestartCount + 1;
-                if (next > MaxCrashRestarts)
+                int next = CrashRestartPolicy.NextAttempt(uptime, CrashRestartCount, MaxCrashRestarts, StableUptime);
+                if (next == 0)
                 {
                     Logger.Log("Crash handler: " + MaxCrashRestarts + " quick crashes in a row — NOT restarting again.");
                     return;
@@ -246,6 +247,24 @@ namespace SteelSeriesDiscordStreamFix
             catch (Exception ex)
             {
                 Logger.Log("Crash handler: restart failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Runs (in the OLD version, in its own short process) right before Velopack replaces the files. If the
+        /// updater has to kill a running copy that did not answer the exit request, that is not a crash: mark the
+        /// run as clean so the next start does not show a false "closed abnormally" notice. Never throws.
+        /// </summary>
+        private static void BeforeUpdateMarkClean()
+        {
+            try
+            {
+                Logger.Log("Velopack update hook: an update is about to be applied — marking this run as clean.");
+                AppSettings.RunState = "clean";
+            }
+            catch
+            {
+                // A hook must never throw.
             }
         }
 

@@ -19,20 +19,6 @@ namespace SteelSeriesDiscordStreamFix
             "Sonar - Microphone"
         };
 
-        // Exact process names (without ".exe"): stable, PTB, Canary, dev builds and the Vesktop client.
-        private static readonly HashSet<string> DiscordProcessNames =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop",
-              "Equibop", "Legcord", "ArmCord", "WebCord", "Vencord", "Dorion" };
-
-        // Explicit list only: a process that merely starts with "Discord" is NOT muted. A new Discord channel
-        // or fork can be added without a new release through the "ExtraProcessNames" registry value.
-        private static bool IsDiscordName(string name, HashSet<string> extra)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            return DiscordProcessNames.Contains(name) || extra.Contains(name);
-        }
-
         // After a Discord session is first muted we defend that mute (Windows/Discord may restore the old
         // volume state right after the session opens). Once this window has passed, or after this many
         // re-mutes, an un-mute is treated as a deliberate user action and is left alone. Without this limit
@@ -290,7 +276,7 @@ namespace SteelSeriesDiscordStreamFix
                 return false;
             }
 
-            if (!IsDiscordName(processName, _extraProcessNames)) return false;
+            if (!DiscordProcessMatcher.IsDiscord(processName, _extraProcessNames)) return false;
 
             string key = GetSessionKey(session, pid);
 
@@ -349,14 +335,7 @@ namespace SteelSeriesDiscordStreamFix
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                string raw = AppSettings.ExtraProcessNames;
-                if (string.IsNullOrWhiteSpace(raw)) return set;
-                foreach (string part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string name = part.Trim();
-                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
-                    if (name.Length > 0) set.Add(name);
-                }
+                set = DiscordProcessMatcher.ParseExtraNames(AppSettings.ExtraProcessNames);
                 if (set.Count > 0) Logger.Log("MuteWatcherService: extra process names from settings: " + string.Join(", ", set));
             }
             catch (Exception ex) { Logger.Log("LoadExtraProcessNames failed: " + ex.Message); }
@@ -714,31 +693,33 @@ namespace SteelSeriesDiscordStreamFix
 
             public void OnVolumeChanged(float volume, bool isMuted)
             {
-                if (_owner._disposed || isMuted) return;
+                if (_owner._disposed) return;
 
-                bool inWindow = DateTime.UtcNow - _trackedAtUtc <= RemuteWindow;
-                if (!inWindow)
+                TimeSpan sinceTracked = DateTime.UtcNow - _trackedAtUtc;
+                switch (RemutePolicy.Decide(isMuted, sinceTracked, RemuteWindow, _remuteCount, _maxRemutes))
                 {
-                    // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it,
-                    // and remember it so a later rebind does not re-mute this session.
-                    _owner.RememberUserUnmute(Key);
-                    if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
-                        Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted {(DateTime.UtcNow - _trackedAtUtc).TotalSeconds:0}s after its session opened " +
-                                   $"(protection window = {_remuteWindowSeconds}s) — treating it as a deliberate un-mute and leaving it un-muted. " +
-                                   "If Discord restores its state later than this on your PC, raise the registry DWORD RemuteWindowSeconds.");
-                    return;
-                }
+                    case RemuteDecision.Ignore:
+                        return;
 
-                if (_remuteCount >= _maxRemutes)
-                {
-                    // We stop fighting, but this is NOT proof that the user did it: Windows/Discord may be
-                    // restoring the old state. So it is deliberately not remembered as a user choice, and a
-                    // later rebind will try to mute this session again.
-                    if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
-                        Logger.Log($"WARNING: Discord (pid={_pid}) was un-muted again after {_maxRemutes} automatic re-mutes — giving up on this session for now " +
-                                   "(Discord is NOT muted on the Sonar microphone device right now). A rebind (device change / Sonar restart) will try again. " +
-                                   "To allow more attempts, raise the registry DWORD MaxRemutes.");
-                    return;
+                    case RemuteDecision.RespectUserUnmute:
+                        // Deliberate un-mute (e.g. the user un-muting Discord in the Windows mixer): respect it,
+                        // and remember it so a later rebind does not re-mute this session.
+                        _owner.RememberUserUnmute(Key);
+                        if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
+                            Logger.Log($"MuteWatcherService: Discord (pid={_pid}) was un-muted {sinceTracked.TotalSeconds:0}s after its session opened " +
+                                       $"(protection window = {_remuteWindowSeconds}s) — treating it as a deliberate un-mute and leaving it un-muted. " +
+                                       "If Discord restores its state later than this on your PC, raise the registry DWORD RemuteWindowSeconds.");
+                        return;
+
+                    case RemuteDecision.GiveUp:
+                        // We stop fighting, but this is NOT proof that the user did it: Windows/Discord may be
+                        // restoring the old state. So it is deliberately not remembered as a user choice, and a
+                        // later rebind will try to mute this session again.
+                        if (System.Threading.Interlocked.Exchange(ref _respectLogged, 1) == 0)
+                            Logger.Log($"WARNING: Discord (pid={_pid}) was un-muted again after {_maxRemutes} automatic re-mutes — giving up on this session for now " +
+                                       "(Discord is NOT muted on the Sonar microphone device right now). A rebind (device change / Sonar restart) will try again. " +
+                                       "To allow more attempts, raise the registry DWORD MaxRemutes.");
+                        return;
                 }
 
                 _remuteCount++;

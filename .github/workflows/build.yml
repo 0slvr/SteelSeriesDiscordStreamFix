@@ -10,3 +10,4 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet build SteelSeriesDiscordStreamFix.csproj -c Release
       - run: dotnet build Launcher/SteelSeriesDiscordStreamFix.Launcher.csproj -c Release
+      - run: dotnet test Tests/SteelSeriesDiscordStreamFix.Tests.csproj -c Release

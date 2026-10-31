@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
-using System.Text.RegularExpressions;
 
 namespace SteelSeriesDiscordStreamFix
 {
@@ -20,22 +19,7 @@ namespace SteelSeriesDiscordStreamFix
         // Logs get attached to public issues: never write the Windows user name (it is part of every profile path).
         private static readonly string ProfilePath = SafeProfilePath();
 
-        // Windows paths are case-insensitive: "c:\users\name" must be redacted just like "C:\Users\Name".
-        // Also covers the forward-slash form of the same path.
-        private static readonly Regex ProfileRegex = BuildProfileRegex(ProfilePath);
-
-        private static Regex BuildProfileRegex(string profile)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(profile)) return null;
-                string trimmed = profile.TrimEnd('\\', '/');
-                if (trimmed.Length == 0) return null;
-                string pattern = Regex.Escape(trimmed).Replace("\\\\", "[\\\\/]");
-                return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-            }
-            catch { return null; }
-        }
+        private static readonly LogRedactor Redactor = new LogRedactor(ProfilePath);
 
         private static string SafeProfilePath()
         {
@@ -94,8 +78,7 @@ namespace SteelSeriesDiscordStreamFix
         {
             try
             {
-                if (ProfileRegex != null && message != null)
-                    message = ProfileRegex.Replace(message, "%USERPROFILE%");
+                message = Redactor.Redact(message);
 
                 lock (LockObj)
                 {

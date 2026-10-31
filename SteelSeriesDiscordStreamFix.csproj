@@ -28,7 +28,7 @@
     <Description>Audio utility to mute Discord mic and manage SteelSeries Sonar</Description>
 
     <!-- The Launcher sub-project and build output folders live inside this folder: keep them out of the globs. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);Launcher\**;publish\**;publish-launcher\**;Releases\**;packages\**;logs\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Launcher\**;Tests\**;publish\**;publish-launcher\**;Releases\**;packages\**;logs\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

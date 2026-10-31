@@ -13,7 +13,7 @@ body:
     id: app-version
     attributes:
       label: App version
-      placeholder: v1.1.0
+      placeholder: v1.0.46
     validations:
       required: true
   - type: input
@@ -39,6 +39,12 @@ body:
         - Canary
         - Development
         - Vesktop
+        - Equibop
+        - Legcord
+        - ArmCord
+        - WebCord
+        - Dorion
+        - Other client (named in "What happened?")
         - Browser (unsupported)
     validations:
       required: true
@@ -48,6 +54,18 @@ body:
       label: Is "Hide Sonar - Chat / Gaming" enabled?
       options:
         - label: Yes, it is enabled
+  - type: dropdown
+    id: crash
+    attributes:
+      label: Did the app crash or restart by itself?
+      description: After a crash the app restarts itself and shows a notification. Pick the closest answer.
+      options:
+        - No, it kept running
+        - Yes, it restarted itself after an error
+        - Yes, and it did NOT come back
+        - Not sure
+    validations:
+      required: true
   - type: textarea
     id: log
     attributes:
