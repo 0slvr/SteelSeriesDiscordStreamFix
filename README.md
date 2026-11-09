@@ -1,86 +1,201 @@
-# SteelSeries Discord Stream Fix
+<div align="center">
 
-![Platform](https://img.shields.io/badge/platform-Windows-blue)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/0slvr/SteelSeriesDiscordStreamFix)](../../releases)
+# 🎧 SteelSeries Discord Stream Fix
 
-A small Windows background utility that stops Discord audio from leaking into the **SteelSeries Sonar** virtual microphone, which is especially useful when streaming or recording.
+### Keep Discord out of your SteelSeries Sonar virtual microphone.
 
-Download one file, pick your options, press **Save**. It runs in the background from then on, with no tray icon. To open the settings window, simply open the file again.
+A tiny Windows background app. Download one file, pick your options, press **Save**. Done.
+
+[![Download](https://img.shields.io/github/v/release/0slvr/SteelSeriesDiscordStreamFix?style=for-the-badge&color=ff5200&label=Download)](../../releases/latest)
+![Platform](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
+<br>
 
 ![Settings window](docs/settings.png)
 
-## The Problem
+</div>
 
-Sonar (part of SteelSeries GG) creates virtual audio devices in Windows, such as **Sonar - Gaming**, **Sonar - Chat**, and **Sonar - Microphone**. The idea is to route each app to the right channel and control each channel's volume separately.
+---
 
-However, Discord can open an audio session on the **Sonar - Microphone** device itself. Its audio then ends up in the virtual microphone path instead of staying in the Chat channel.
+## 😤 The problem
 
-### 1. Automatic Discord muting on the microphone device
-The app monitors audio sessions on the **SteelSeries Sonar - Microphone** device. When Discord opens a session there, it is muted immediately.
+Sonar (part of SteelSeries GG) creates virtual audio devices in Windows: **Sonar - Gaming**, **Sonar - Chat** and **Sonar - Microphone**. Each app should go to its own channel so you can control every volume separately.
 
-### 2. Supported clients 
-Discord (Stable), PTB, Canary, Development, Vesktop, Equibop, Legcord, ArmCord, WebCord and Dorion. Only these exact process names are muted; others can be added with `ExtraProcessNames` (see Troubleshooting).
-Discord running in a web browser is **not supported**, since it cannot be distinguished from other browser tabs.
+But Discord can open an audio session on **Sonar - Microphone** itself. Its audio then leaks into your virtual mic, which your stream or recording picks up, instead of staying in the Chat channel.
 
-### 3. Hide Sonar - Chat and Sonar - Gaming (optional)
-You can hide these two devices from the Windows device list to reduce clutter.
+## ✅ The fix
 
-This is optional because SteelSeries recommends keeping Discord's output on the Chat device, and hiding it may cut Discord audio for some users. **If Discord goes silent after enabling this, turn the option off.**
-
-
-## What It Solves
-
-| Problem | How it's handled |
+| Problem | What the app does |
 |---|---|
-| Discord audio leaking into the virtual mic | Automatically mutes Discord's session on that device |
-| Repeating manual setup | No need to open the volume mixer and mute Discord every time |
-| Cluttered audio device list | Optional hide feature |
-| Protection lost after restarting Sonar or Windows | Reconnects automatically |
-| Worry about leaving the system in an odd state | On exit or Windows shutdown, the app unmutes and restores only the devices **it** hid |
+| Discord audio leaking into the virtual mic | Mutes Discord's session on **Sonar - Microphone** the moment it opens |
+| Muting it by hand in the volume mixer, again and again | Fully automatic |
+| Protection lost after restarting Sonar or Windows | Reconnects by itself |
+| Cluttered device list | *Optional:* hide **Sonar - Chat** and **Sonar - Gaming** |
+| Fear of leaving Windows in an odd state | On exit or shutdown it unmutes and restores only the devices **it** hid |
 
-## Installation
+**Supported clients:** Discord (Stable, PTB, Canary, Development), Vesktop, Equibop, Legcord, ArmCord, WebCord and Dorion. Only these exact process names are muted. You can add more with [`ExtraProcessNames`](#-troubleshooting).
+
+> ⚠️ Discord in a **web browser** is not supported, because it can't be told apart from other browser tabs.
+
+---
+
+## 🚀 Quick start
 
 1. Make sure **SteelSeries GG** is installed and running.
-2. Download `SteelSeriesDiscordStreamFix-win-Setup.exe` from the [Releases](../../releases) page.
-3. Open it. A small window shows the options. **Nothing is installed until you press Save.** Then it installs for your Windows account only (no admin rights) and starts protecting Discord.
-4. To change settings later, open the same file again (or run the app from the Start menu).
+2. Download **`SteelSeriesDiscordStreamFix-win-Setup.exe`** from the [latest release](../../releases/latest).
+3. Open it, choose your options and press **Save**. Nothing is installed before that.
 
-**Already installed?** Opening a newer file asks whether to update. Choose *No* and your installed version simply opens, nothing changes.
+It installs for your Windows account only (**no admin rights**) and starts protecting Discord right away. There is no tray icon. To change settings later, open the same file again or launch the app from the Start menu.
 
-> The file is not code-signed yet, so Windows SmartScreen may warn on first run ("More info" > "Run anyway").
+Then just join a Discord call or start streaming. The settings window shows the Sonar connection status.
 
-## Updates
+> 🛡️ The file isn't code-signed yet, so Windows SmartScreen may warn on first run. Click **More info → Run anyway**.
 
-The app checks for new versions in the background but **never installs one by itself**. When a version is found you get a normal Windows notification. Click it to choose **Update now**, **Skip this version** (no more notifications for it) or **Later**. The Settings window shows the same choices, and **Check for Updates** works at any time.
+<details>
+<summary><b>Already installed?</b></summary>
 
-Once installed, there's nothing to do. Join a Discord call or start streaming, and Discord's session on **Sonar - Microphone** is muted automatically. Check the settings window to confirm the Sonar connection status.
+<br>
 
-## Troubleshooting
+Opening a newer Setup file asks whether to update. Choose **No** and your installed version simply opens, with nothing changed.
 
-- **Discord went silent after enabling "Hide Sonar - Chat / Gaming":** turn that option off.
-- **Status shows "Sonar not found":** make sure Sonar is running. The app retries every 30 seconds.
-- **Something looks wrong:** open the log file from the settings window and attach it when reporting an issue. The log starts with the app version and Windows build, and your Windows user name is replaced by `%USERPROFILE%`, but read it once before posting.
-- **Sonar Chat / Gaming stay hidden after a crash, a forced kill or a manual delete of the app:** open *Sound settings > More sound settings > Playback*, right-click an empty area, tick *Show Disabled Devices*, then right-click **SteelSeries Sonar - Chat** / **Gaming** and choose *Enable*.
-- **Another Discord client (a fork) is not muted:** add a string value `ExtraProcessNames` to `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` with the process names separated by commas (e.g. `MyDiscordFork,AnotherClient`), then restart the app.
-- **The app crashed:** it restarts itself (at most 3 times in a row) and shows a notification. If it was closed abnormally (forced kill, power loss), the next start shows a notification too.
-- **Discord gets un-muted again by itself:** after Discord opens a session the app re-mutes it for 15 seconds, at most 3 times. If Discord restores its state later than that on your PC, set the DWORD values `RemuteWindowSeconds` (5-120) and/or `MaxRemutes` (1-10) in `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` and restart the app. The log says clearly when the app gives up on a session.
-- **No warning notifications while gaming:** Windows can hide notifications during Focus Assist / game mode. The current status is always visible in the Settings window.
+</details>
 
-## Development
+---
 
-Build the app with `dotnet build SteelSeriesDiscordStreamFix.csproj -c Release` and run the unit tests with `dotnet test Tests/SteelSeriesDiscordStreamFix.Tests.csproj`. The tests cover the pure logic only (re-mute policy, hide-ownership rules, log redaction, Discord process matching, crash-restart limits). GitHub Actions builds both projects and runs the tests on every push and pull request.
+## 🔄 Updates
 
-## Disclaimer
+The app checks for new versions in the background but **never installs one by itself**. When one is found, you get a normal Windows notification. Click it and choose:
 
-This is an unofficial community tool and is **not affiliated with or endorsed by SteelSeries or Discord**. SteelSeries, Sonar, and Discord are trademarks of their respective owners. Use at your own risk.
+- **Update now**
+- **Skip this version** (no more notifications for it)
+- **Later**
 
-## Limitations 
+The settings window shows the same choices, and **Check for Updates** works at any time.
 
-- Windows only, and **Sonar must be installed**
-- Discord in the browser is not supported
-- Hiding relies on an undocumented Windows API (`SetEndpointVisibility`) and may break after a Windows update
+---
 
-## Summary
+## 🙈 Hiding Sonar - Chat and Sonar - Gaming *(optional)*
 
-SteelSeries Discord Stream Fix does one job well: it keeps Discord audio out of Sonar's virtual microphone path without any effort on your part. With the latest changes, it shuts down more safely, produces fewer false alerts, avoids loops, and keeps the sensitive options optional and clearly explained.
+You can hide these two devices from the Windows device list to reduce clutter.
+
+It's optional because SteelSeries recommends keeping Discord's output on the Chat device, and hiding it may cut Discord audio for some people. **If Discord goes silent after enabling this, turn the option off.**
+
+---
+
+## 🛠️ Troubleshooting
+
+<details>
+<summary><b>Discord went silent after enabling "Hide Sonar - Chat / Gaming"</b></summary>
+
+<br>
+
+Turn that option off.
+
+</details>
+
+<details>
+<summary><b>Status shows "Sonar not found"</b></summary>
+
+<br>
+
+Make sure Sonar is running. The app retries every 30 seconds.
+
+</details>
+
+<details>
+<summary><b>Sonar Chat / Gaming stay hidden after a crash, a forced kill or deleting the app</b></summary>
+
+<br>
+
+Open **Sound settings → More sound settings → Playback**, right-click an empty area and tick **Show Disabled Devices**. Then right-click **SteelSeries Sonar - Chat** / **Gaming** and choose **Enable**.
+
+</details>
+
+<details>
+<summary><b>Another Discord client (a fork) isn't muted</b></summary>
+
+<br>
+
+Add a string value `ExtraProcessNames` to `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` with the process names separated by commas, for example `MyDiscordFork,AnotherClient`. Then restart the app.
+
+</details>
+
+<details>
+<summary><b>Discord gets un-muted again by itself</b></summary>
+
+<br>
+
+After Discord opens a session, the app re-mutes it for 15 seconds, at most 3 times. If Discord restores its state later than that on your PC, set these DWORD values in `HKEY_CURRENT_USER\SOFTWARE\SteelSeriesDiscordStreamFix` and restart the app:
+
+| Value | Range | Meaning |
+|---|---|---|
+| `RemuteWindowSeconds` | 5–120 | How long the app keeps re-muting |
+| `MaxRemutes` | 1–10 | How many times it re-mutes |
+
+The log says clearly when the app gives up on a session.
+
+</details>
+
+<details>
+<summary><b>The app crashed</b></summary>
+
+<br>
+
+It restarts itself (at most 3 times in a row) and shows a notification. If it was closed abnormally (forced kill, power loss), the next start shows a notification too.
+
+</details>
+
+<details>
+<summary><b>No warning notifications while gaming</b></summary>
+
+<br>
+
+Windows can hide notifications during Focus Assist / game mode. The current status is always visible in the settings window.
+
+</details>
+
+<details>
+<summary><b>Something looks wrong</b></summary>
+
+<br>
+
+Open the log file from the settings window and attach it when you [report an issue](../../issues/new/choose). The log starts with the app version and Windows build, and your Windows user name is replaced by `%USERPROFILE%`, but please read it once before posting.
+
+</details>
+
+---
+
+## ⚠️ Limitations
+
+- Windows only, and **Sonar must be installed**.
+- Discord in the browser is not supported.
+- Hiding relies on an undocumented Windows API (`SetEndpointVisibility`) and may break after a Windows update.
+
+---
+
+## 👩‍💻 Development
+
+```bash
+# Build the app
+dotnet build SteelSeriesDiscordStreamFix.csproj -c Release
+
+# Run the unit tests
+dotnet test Tests/SteelSeriesDiscordStreamFix.Tests.csproj
+```
+
+The tests cover the pure logic only: re-mute policy, hide-ownership rules, log redaction, Discord process matching and crash-restart limits. GitHub Actions builds both projects and runs the tests on every push and pull request.
+
+---
+
+## 📄 Disclaimer
+
+This is an unofficial community tool and is **not affiliated with or endorsed by SteelSeries or Discord**. SteelSeries, Sonar and Discord are trademarks of their respective owners. Use at your own risk.
+
+<div align="center">
+
+**Found a bug or have an idea?** [Open an issue](../../issues/new/choose) · **Like it?** ⭐ the repo.
+
+Released under the [MIT License](LICENSE).
+
+</div>
